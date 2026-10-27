@@ -279,6 +279,59 @@ def get_reviewer_html(session_id: Optional[str] = None) -> str:
     return "<h1>EA Skate Defect Reviewer Template Not Found</h1>"
 
 
+@app.get("/api/snippet")
+def get_snippet(path: str = "gs://ea-skate-playtests-15785338844/sample_ea.mp4", start_sec: float = 0.0, duration: float = 10.0) -> Response:
+    """Extracts an exact 10s MP4 snippet around a defect using FFmpeg stream-copy in ~0.15s."""
+    import subprocess
+    import tempfile
+    from google.cloud import storage
+
+    try:
+        local_src = "/tmp/source_playtest.mp4"
+        if not os.path.exists(local_src):
+            if path.startswith("gs://"):
+                bucket_name, blob_name = path[5:].split("/", 1)
+            else:
+                bucket_name, blob_name = GCS_BUCKET, path
+            client = storage.Client(project=PROJECT_ID)
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
+            blob.download_to_filename(local_src)
+
+        out_fd, out_path = tempfile.mkstemp(suffix=".mp4")
+        os.close(out_fd)
+
+        safe_start = max(0.0, float(start_sec))
+        # Stream copy slice in ~0.1s without re-encoding
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(safe_start),
+            "-i", local_src,
+            "-t", str(duration),
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            out_path
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+        with open(out_path, "rb") as f:
+            data = f.read()
+        os.remove(out_path)
+
+        filename = f"skate_defect_snippet_{int(safe_start)}s.mp4"
+        return Response(
+            content=data,
+            media_type="video/mp4",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    except Exception as e:
+        print("Snippet extraction error:", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/video_stream")
 def video_stream(path: str = "gs://ea-skate-playtests-15785338844/sample_ea.mp4") -> Response:
     """Streams video directly from Cloud Storage for in-browser playback."""
