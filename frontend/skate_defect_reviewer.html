@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EA Skate // Frostbite QA Defect Reviewer</title>
+  <style>
+    :root {
+      --fb-bg: #080c14;
+      --fb-panel: #0f1726;
+      --fb-panel-light: #162238;
+      --fb-border: #1e2c45;
+      --fb-border-focus: #00f0ff;
+      --fb-cyan: #00f0ff;
+      --fb-amber: #ffb703;
+      --fb-red: #ff2a55;
+      --fb-text-primary: #e6f1ff;
+      --fb-text-muted: #8ba2c2;
+      --fb-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --fb-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--fb-bg);
+      color: var(--fb-text-primary);
+      font-family: var(--fb-font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1120px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Header Bar */
+    header {
+      background: var(--fb-panel);
+      border: 1px solid var(--fb-border);
+      border-left: 4px solid var(--fb-cyan);
+      padding: 14px 20px;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #fff;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--fb-cyan);
+      font-family: var(--fb-font-mono);
+      letter-spacing: 0.05em;
+    }
+
+    .header-status {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 12px;
+      font-family: var(--fb-font-mono);
+      color: var(--fb-text-muted);
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--fb-cyan);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--fb-cyan);
+    }
+
+    /* Video Player Viewport */
+    .viewport-card {
+      background: #000;
+      border: 1px solid var(--fb-border);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+    }
+
+    .video-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+
+    .video-overlay-hud {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      display: flex;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .hud-tag {
+      background: rgba(8, 12, 20, 0.85);
+      border: 1px solid var(--fb-border);
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-family: var(--fb-font-mono);
+      font-size: 11px;
+      color: var(--fb-cyan);
+    }
+
+    /* Scrubber & Timeline Section */
+    .timeline-card {
+      background: var(--fb-panel);
+      border: 1px solid var(--fb-border);
+      border-radius: 6px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-family: var(--fb-font-mono);
+      color: var(--fb-text-muted);
+      text-transform: uppercase;
+    }
+
+    .timeline-track-container {
+      position: relative;
+      height: 44px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      user-select: none;
+    }
+
+    .timeline-bar {
+      position: absolute;
+      width: 100%;
+      height: 8px;
+      background: var(--fb-panel-light);
+      border: 1px solid var(--fb-border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .timeline-progress {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, rgba(0, 240, 255, 0.5), var(--fb-cyan));
+      border-radius: 4px;
+      transition: width 0.05s linear;
+    }
+
+    /* Clickable Defect Pins */
+    .defect-pin {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #0f1726;
+      border: 2px solid var(--fb-amber);
+      cursor: pointer;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 10px rgba(255, 183, 3, 0.4);
+    }
+
+    .defect-pin::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--fb-amber);
+    }
+
+    .defect-pin[data-sev="Blocker"] {
+      border-color: var(--fb-red);
+      box-shadow: 0 0 10px rgba(255, 42, 85, 0.5);
+    }
+    .defect-pin[data-sev="Blocker"]::before {
+      background: var(--fb-red);
+    }
+
+    .defect-pin:hover {
+      transform: translate(-50%, -50%) scale(1.3);
+      box-shadow: 0 0 18px var(--fb-cyan);
+      border-color: var(--fb-cyan);
+    }
+    .defect-pin:hover::before {
+      background: var(--fb-cyan);
+    }
+
+    .defect-pin.active {
+      transform: translate(-50%, -50%) scale(1.35);
+      border-color: var(--fb-cyan);
+      box-shadow: 0 0 20px var(--fb-cyan);
+    }
+    .defect-pin.active::before {
+      background: var(--fb-cyan);
+    }
+
+    /* Pin Tooltip Bubble */
+    .pin-label {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 38, 0.95);
+      border: 1px solid var(--fb-border);
+      color: var(--fb-text-primary);
+      padding: 4px 8px;
+      font-size: 10px;
+      font-family: var(--fb-font-mono);
+      white-space: nowrap;
+      border-radius: 3px;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Player Controls Bar */
+    .controls-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 4px;
+    }
+
+    .controls-left, .controls-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-fb {
+      background: var(--fb-panel-light);
+      border: 1px solid var(--fb-border);
+      color: var(--fb-text-primary);
+      padding: 7px 14px;
+      font-size: 12px;
+      font-family: var(--fb-font-mono);
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-fb:hover {
+      border-color: var(--fb-cyan);
+      color: var(--fb-cyan);
+      background: rgba(0, 240, 255, 0.08);
+    }
+
+    .btn-fb.active {
+      background: var(--fb-cyan);
+      color: #000;
+      font-weight: 700;
+      border-color: var(--fb-cyan);
+    }
+
+    .timecode-display {
+      font-family: var(--fb-font-mono);
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      color: var(--fb-text-muted);
+      background: var(--fb-panel-light);
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: 1px solid var(--fb-border);
+    }
+
+    .timecode-active {
+      color: var(--fb-cyan);
+      font-weight: 700;
+    }
+
+    /* Defect Details Card Below */
+    .defect-card {
+      background: var(--fb-panel);
+      border: 1px solid var(--fb-border);
+      border-radius: 6px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .defect-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 1px solid var(--fb-border);
+      padding-bottom: 16px;
+    }
+
+    .header-left-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .defect-id-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .defect-id {
+      font-size: 13px;
+      font-family: var(--fb-font-mono);
+      color: var(--fb-cyan);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .defect-name {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .badge-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    .badge {
+      font-family: var(--fb-font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-sev-high {
+      background: rgba(255, 183, 3, 0.15);
+      border: 1px solid var(--fb-amber);
+      color: var(--fb-amber);
+    }
+
+    .badge-sev-blocker {
+      background: rgba(255, 42, 85, 0.15);
+      border: 1px solid var(--fb-red);
+      color: var(--fb-red);
+    }
+
+    .badge-subsystem {
+      background: rgba(0, 240, 255, 0.12);
+      border: 1px solid var(--fb-cyan);
+      color: var(--fb-cyan);
+    }
+
+    /* Diagnostics Grid */
+    .defect-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+    }
+
+    .grid-cell {
+      background: var(--fb-panel-light);
+      border: 1px solid var(--fb-border);
+      border-radius: 4px;
+      padding: 12px;
+    }
+
+    .cell-label {
+      font-size: 10px;
+      font-family: var(--fb-font-mono);
+      text-transform: uppercase;
+      color: var(--fb-text-muted);
+      margin-bottom: 4px;
+      letter-spacing: 0.08em;
+    }
+
+    .cell-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fb-text-primary);
+    }
+
+    .cell-value.cyan {
+      color: var(--fb-cyan);
+      font-family: var(--fb-font-mono);
+    }
+
+    /* Detailed Telemetry & Repro */
+    .defect-text-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .block-label {
+      font-size: 11px;
+      font-family: var(--fb-font-mono);
+      text-transform: uppercase;
+      color: var(--fb-text-muted);
+      letter-spacing: 0.06em;
+    }
+
+    .block-content {
+      background: var(--fb-panel-light);
+      border: 1px solid var(--fb-border);
+      border-radius: 4px;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #cfddec;
+      white-space: pre-line;
+    }
+
+    /* Quick Selector Buttons */
+    .defect-pills {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .pill-btn {
+      background: var(--fb-panel-light);
+      border: 1px solid var(--fb-border);
+      padding: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .pill-btn:hover {
+      border-color: var(--fb-cyan);
+      background: rgba(0, 240, 255, 0.05);
+    }
+
+    .pill-btn.active {
+      border-color: var(--fb-cyan);
+      background: rgba(0, 240, 255, 0.1);
+      box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.15);
+    }
+
+    .pill-time {
+      font-size: 11px;
+      font-family: var(--fb-font-mono);
+      color: var(--fb-cyan);
+      font-weight: 700;
+    }
+
+    .pill-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="header-brand">
+        <div class="live-dot"></div>
+        <div>
+          <div class="brand-title">Frostbite QA // Telemetry Reviewer</div>
+          <div class="brand-subtitle">EA Skate // Physics Glitch Triage Pipeline</div>
+        </div>
+      </div>
+      <div class="header-status">
+        <span>SESSION: #QA-2026-OCT</span>
+        <span>ENGINE: FB-SKATE-V5.4</span>
+      </div>
+    </header>
+
+    <!-- HTML5 Video Viewport -->
+    <div class="viewport-card">
+      <div class="video-wrapper">
+        <video id="qaVideo" src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" playsinline preload="auto"></video>
+        <div class="video-overlay-hud">
+          <div class="hud-tag">STREAM: 60.0 FPS</div>
+          <div class="hud-tag" id="hudDefectIndicator">PIN: 00:12 CURB SNAPPING</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scrubber and Pins -->
+    <div class="timeline-card">
+      <div class="timeline-header">
+        <span>Interactive Physics Timeline (Triage Segment: 00:00 - 01:00)</span>
+        <span>Click Pins to Jump to Defect</span>
+      </div>
+
+      <div class="timeline-track-container" id="timelineTrack" title="Click anywhere along timeline to scrub">
+        <div class="timeline-bar">
+          <div class="timeline-progress" id="timelineProgress"></div>
+        </div>
+
+        <!-- Defect Pin 1: 00:12 -->
+        <div class="defect-pin" id="pin-0" data-sev="High" title="Jump to 00:12: Curb Snapping">
+          <div class="pin-label">00:12 Curb Snapping</div>
+        </div>
+
+        <!-- Defect Pin 2: 00:20 -->
+        <div class="defect-pin" id="pin-1" data-sev="High" title="Jump to 00:20: Ragdoll Inversion">
+          <div class="pin-label">00:20 Ragdoll Inversion</div>
+        </div>
+
+        <!-- Defect Pin 3: 00:47 -->
+        <div class="defect-pin" id="pin-2" data-sev="Blocker" title="Jump to 00:47: Impulse Launch">
+          <div class="pin-label">00:47 Impulse Launch</div>
+        </div>
+      </div>
+
+      <!-- Playback Controls -->
+      <div class="controls-bar">
+        <div class="controls-left">
+          <button class="btn-fb" id="btnPlayPause">▶ Play</button>
+          <button class="btn-fb" id="btnStepBack" title="Step Back 1s">⏪ -1.0s</button>
+          <button class="btn-fb" id="btnStepFwd" title="Step Forward 1s">+1.0s ⏩</button>
+          <button class="btn-fb" id="btnSlowMo">0.5x Slow-Mo</button>
+        </div>
+        <div class="controls-right">
+          <div class="timecode-display">
+            CURRENT: <span class="timecode-active" id="tcCurrent">00:12.00</span> / <span id="tcTotal">09:56.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Defect Selection Shortcuts -->
+    <div class="defect-pills">
+      <div class="pill-btn active" id="pill-0" onclick="selectDefect(0)">
+        <div class="pill-time">00:12 [PIN 1]</div>
+        <div class="pill-title">Curb Snapping</div>
+      </div>
+      <div class="pill-btn" id="pill-1" onclick="selectDefect(1)">
+        <div class="pill-time">00:20 [PIN 2]</div>
+        <div class="pill-title">Ragdoll Inversion</div>
+      </div>
+      <div class="pill-btn" id="pill-2" onclick="selectDefect(2)">
+        <div class="pill-time">00:47 [PIN 3]</div>
+        <div class="pill-title">Impulse Launch</div>
+      </div>
+    </div>
+
+    <!-- Defect Details Card Below -->
+    <div class="defect-card" id="defectDetailsCard">
+      <div class="defect-card-header">
+        <div class="header-left-group">
+          <div class="defect-id-row">
+            <span class="defect-id" id="cardDefectId">FB-SKATE-8821</span>
+            <span style="color: var(--fb-text-muted);">|</span>
+            <span style="font-family: var(--fb-font-mono); font-size: 12px; color: var(--fb-text-muted);" id="cardTimestamp">TIMESTAMP: 00:12.00</span>
+          </div>
+          <h2 class="defect-name" id="cardDefectTitle">Curb Snapping Mesh Collision Glitch</h2>
+        </div>
+        <div class="badge-group">
+          <span class="badge badge-sev-high" id="cardSeverityBadge">Severity: High</span>
+          <span class="badge badge-subsystem" id="cardSubsystemBadge">Subsystem: Rigid Body / Mesh Contact</span>
+        </div>
+      </div>
+
+      <!-- Diagnostics Telemetry Grid -->
+      <div class="defect-grid">
+        <div class="grid-cell">
+          <div class="cell-label">Primary Physics Subsystem</div>
+          <div class="cell-value" id="cardSubsystem">Rigid Body Collision & Contact Resolver</div>
+        </div>
+        <div class="grid-cell">
+          <div class="cell-label">Solver State / Vector</div>
+          <div class="cell-value cyan" id="cardVector">Normal Pen: -0.042m | Torque: +182Nm</div>
+        </div>
+        <div class="grid-cell">
+          <div class="cell-label">Reproduction Rate</div>
+          <div class="cell-value" id="cardReproRate">85% (Consistent on 90° Curb Edges)</div>
+        </div>
+      </div>
+
+      <!-- Description / Glitch Summary -->
+      <div class="defect-text-block">
+        <div class="block-label">Observed Behavior & Telemetry Breakdown</div>
+        <div class="block-content" id="cardDescription">
+Skateboard truck hangar collision hull clips below the curb top polygon during FS 180 rotation. Contact penetration resolver applies a corrective impulse in the negative Z-axis, snapping the board instantly into the concrete face.
+        </div>
+      </div>
+
+      <!-- Steps to Reproduce -->
+      <div class="defect-text-block">
+        <div class="block-label">Reproduction Steps</div>
+        <div class="block-content" id="cardRepro">
+1. Approach a standard 0.45m street curb at moderate speed (~18.5 km/h).
+2. Execute a FS 180 Kickflip approximately 0.25m prior to the curb edge.
+3. Allow back truck to graze the right corner polygon at a 15-degree yaw angle.
+4. Verify truck mesh snapping and instant rotational lock.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Defect Data Registry
+    const defects = [
+      {
+        id: "FB-SKATE-8821",
+        time: 12,
+        timeFormatted: "00:12.00",
+        title: "Curb Snapping",
+        severity: "High",
+        sevClass: "badge-sev-high",
+        subsystem: "Rigid Body & Mesh Collision",
+        vectorInfo: "Normal Pen: -0.042m | Torque: +182Nm",
+        reproRate: "85% (Consistent on 90° Curb Edges)",
+        description: "Skateboard truck hangar collision hull clips below the curb top polygon during FS 180 rotation. Contact penetration resolver applies a corrective impulse in the negative Z-axis, snapping the board instantly into the concrete face.",
+        repro: "1. Approach a standard 0.45m street curb at moderate speed (~18.5 km/h).\n2. Execute a FS 180 Kickflip approximately 0.25m prior to the curb edge.\n3. Allow back truck to graze the right corner polygon at a 15-degree yaw angle.\n4. Verify truck mesh snapping and instant rotational lock."
+      },
+      {
+        id: "FB-SKATE-8904",
+        time: 20,
+        timeFormatted: "00:20.00",
+        title: "Ragdoll Inversion",
+        severity: "High",
+        sevClass: "badge-sev-high",
+        subsystem: "Skeletal Animation & IK Constraints",
+        vectorInfo: "Knee Angular Limit: -180.0° | Roll Overheat",
+        reproRate: "70% (Triggered during rail bail transitions)",
+        description: "Full-body procedural ragdoll inversion occurring upon manual bail dismount. The left knee and hip ball-socket constraints invert along the roll axis when reacting to friction torque, folding the skater model inwards.",
+        repro: "1. Lock into a 50-50 grind on a curved downhill handrail.\n2. Force a manual bail (L2 + R2 + Sticks Inward) midway through rail contact.\n3. Inspect left leg kinematic bone chain in debug skeleton view.\n4. Observe joint angle inversion and limb hyper-extension."
+      },
+      {
+        id: "FB-SKATE-9032",
+        time: 47,
+        timeFormatted: "00:47.00",
+        title: "Impulse Launch",
+        severity: "Blocker",
+        sevClass: "badge-sev-blocker",
+        subsystem: "Kinetic Momentum & Havok Impulse",
+        vectorInfo: "Impulse: 14,820 N·s | Velocity: +120 m/s [Z]",
+        reproRate: "95% (High velocity ground seam transition)",
+        description: "Catastrophic physics solver explosion. Transitioning between plaza tile mesh boundaries at speeds exceeding 25 km/h causes accumulated micro-penetrations, culminating in a 14,000+ N·s vertical impulse that launches the entity into the skybox.",
+        repro: "1. Gain maximum pump speed down the San Van plaza ramp (> 28 km/h).\n2. Cross the transition seam between concrete slab A and modular grass border.\n3. Release all stick inputs immediately prior to boundary crossing.\n4. Character accelerates vertically into skybox exceeding terminal ceiling."
+      }
+    ];
+
+    // Reference timeline window (1 minute focus for high-precision QA scrubbing)
+    const TRIAGE_WINDOW_SECONDS = 60;
+
+    // DOM Elements
+    const video = document.getElementById("qaVideo");
+    const playBtn = document.getElementById("btnPlayPause");
+    const stepBackBtn = document.getElementById("btnStepBack");
+    const stepFwdBtn = document.getElementById("btnStepFwd");
+    const slowMoBtn = document.getElementById("btnSlowMo");
+    const progress = document.getElementById("timelineProgress");
+    const timelineTrack = document.getElementById("timelineTrack");
+    const tcCurrent = document.getElementById("tcCurrent");
+    const tcTotal = document.getElementById("tcTotal");
+    const hudDefectIndicator = document.getElementById("hudDefectIndicator");
+
+    let currentSelectedDefect = 0;
+
+    // Position Pins on Timeline (calibrated against 60-second triage segment)
+    function setupPins() {
+      defects.forEach((d, idx) => {
+        const pin = document.getElementById(`pin-${idx}`);
+        if (pin) {
+          const pct = (d.time / TRIAGE_WINDOW_SECONDS) * 100;
+          pin.style.left = `${pct}%`;
+          pin.addEventListener("click", (e) => {
+            e.stopPropagation();
+            selectDefect(idx);
+          });
+        }
+      });
+    }
+
+    // Format Seconds to MM:SS.SS
+    function formatTime(sec) {
+      if (isNaN(sec)) return "00:00.00";
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      const ms = Math.floor((sec % 1) * 100);
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+    }
+
+    // Switch and display defect details
+    window.selectDefect = function(index) {
+      currentSelectedDefect = index;
+      const def = defects[index];
+
+      // Jump video
+      video.currentTime = def.time;
+
+      // Update Card Header & Badges
+      document.getElementById("cardDefectId").textContent = def.id;
+      document.getElementById("cardTimestamp").textContent = `TIMESTAMP: ${def.timeFormatted}`;
+      document.getElementById("cardDefectTitle").textContent = `${def.title} Glitch Review`;
+      
+      const sevBadge = document.getElementById("cardSeverityBadge");
+      sevBadge.textContent = `Severity: ${def.severity}`;
+      sevBadge.className = `badge ${def.sevClass}`;
+
+      document.getElementById("cardSubsystemBadge").textContent = `Subsystem: ${def.subsystem}`;
+      
+      // Update Grid Details
+      document.getElementById("cardSubsystem").textContent = def.subsystem;
+      document.getElementById("cardVector").textContent = def.vectorInfo;
+      document.getElementById("cardReproRate").textContent = def.reproRate;
+
+      // Update Text Blocks
+      document.getElementById("cardDescription").textContent = def.description;
+      document.getElementById("cardRepro").textContent = def.repro;
+
+      // Update HUD Overlay
+      hudDefectIndicator.textContent = `PIN: ${def.timeFormatted.slice(0,5)} ${def.title.toUpperCase()}`;
+
+      // Update Active States
+      defects.forEach((_, i) => {
+        const pin = document.getElementById(`pin-${i}`);
+        const pill = document.getElementById(`pill-${i}`);
+        if (pin) pin.classList.toggle("active", i === index);
+        if (pill) pill.classList.toggle("active", i === index);
+      });
+    };
+
+    // Play/Pause Controller
+    playBtn.addEventListener("click", () => {
+      if (video.paused) {
+        video.play();
+        playBtn.textContent = "⏸ Pause";
+        playBtn.classList.add("active");
+      } else {
+        video.pause();
+        playBtn.textContent = "▶ Play";
+        playBtn.classList.remove("active");
+      }
+    });
+
+    // Frame Stepping
+    stepBackBtn.addEventListener("click", () => {
+      video.currentTime = Math.max(0, video.currentTime - 1.0);
+    });
+
+    stepFwdBtn.addEventListener("click", () => {
+      video.currentTime = Math.min(video.duration || 600, video.currentTime + 1.0);
+    });
+
+    // Slow-Mo Toggle (0.5x vs 1.0x)
+    slowMoBtn.addEventListener("click", () => {
+      if (video.playbackRate === 0.5) {
+        video.playbackRate = 1.0;
+        slowMoBtn.textContent = "0.5x Slow-Mo";
+        slowMoBtn.classList.remove("active");
+      } else {
+        video.playbackRate = 0.5;
+        slowMoBtn.textContent = "1.0x Normal";
+        slowMoBtn.classList.add("active");
+      }
+    });
+
+    // Video Time Updates
+    video.addEventListener("timeupdate", () => {
+      const cur = video.currentTime;
+      tcCurrent.textContent = formatTime(cur);
+
+      // Scrubber progress mapped across the 60s defect analysis window
+      const pct = Math.min((cur / TRIAGE_WINDOW_SECONDS) * 100, 100);
+      progress.style.width = `${pct}%`;
+    });
+
+    video.addEventListener("loadedmetadata", () => {
+      tcTotal.textContent = formatTime(video.duration);
+    });
+
+    // Direct Scrubbing on Timeline Track
+    timelineTrack.addEventListener("click", (e) => {
+      const rect = timelineTrack.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+      video.currentTime = ratio * TRIAGE_WINDOW_SECONDS;
+    });
+
+    // Hotkey Controls
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        playBtn.click();
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        stepBackBtn.click();
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        stepFwdBtn.click();
+      } else if (e.key === "1") {
+        selectDefect(0);
+      } else if (e.key === "2") {
+        selectDefect(1);
+      } else if (e.key === "3") {
+        selectDefect(2);
+      }
+    });
+
+    // Initialize Prototype
+    setupPins();
+    selectDefect(0);
+  </script>
+</body>
+</html>
