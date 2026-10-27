@@ -496,6 +496,30 @@
       font-weight: 600;
       color: #fff;
     }
+
+    /* Video Upload & Drag-Drop Toolbar */
+    .upload-toolbar {
+      background: var(--fb-panel);
+      border: 1px dashed var(--fb-border);
+      border-radius: 4px;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s ease;
+    }
+
+    .upload-toolbar.dragover {
+      border-color: var(--fb-cyan);
+      background: rgba(0, 240, 255, 0.08);
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.2);
+    }
+
+    .upload-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
   </style>
 </head>
 <body>
@@ -515,6 +539,19 @@
         <span>ENGINE: FB-SKATE-V5.4</span>
       </div>
     </header>
+
+    <!-- Video Upload & Playtest File Selection -->
+    <div class="upload-toolbar" id="dropzone">
+      <div class="upload-left">
+        <span style="font-size: 16px;">📁</span>
+        <span id="videoSourceLabel" style="font-family: var(--fb-font-mono); font-size: 11px;">Active: <b>Reference Clip (QA-2026-OCT)</b></span>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <input type="file" id="videoFileInput" accept="video/mp4,video/webm,video/quicktime" style="display: none;">
+        <button class="btn-fb" id="btnUploadVideo" style="border-color: var(--fb-cyan); color: var(--fb-cyan); font-weight: 700;">📂 Drag & Drop or Upload MP4</button>
+        <button class="btn-fb" id="btnResetPins" title="Reset to reference Frostbite defect pins">🔄 Reference Pins</button>
+      </div>
+    </div>
 
     <!-- HTML5 Video Viewport -->
     <div class="viewport-card">
@@ -936,6 +973,53 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
         })
         .catch(err => console.log("Using default defects, API not reachable:", err));
     }
+
+    // Video File Upload & Drag-and-Drop Handling
+    const fileInput = document.getElementById("videoFileInput");
+    const btnUpload = document.getElementById("btnUploadVideo");
+    const dropzone = document.getElementById("dropzone");
+    const viewportCard = document.querySelector(".viewport-card");
+    const videoSourceLabel = document.getElementById("videoSourceLabel");
+    const btnResetPins = document.getElementById("btnResetPins");
+
+    btnUpload.addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleVideoFile(e.target.files[0]);
+      }
+    });
+
+    function handleVideoFile(file) {
+      const fileUrl = URL.createObjectURL(file);
+      video.src = fileUrl;
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      videoSourceLabel.innerHTML = `Loaded: <b style="color: var(--fb-cyan);">${file.name}</b> (${sizeMb} MB)`;
+      hudDefectIndicator.textContent = `PLAYTEST: ${file.name.toUpperCase()}`;
+      video.play().catch(() => {});
+    }
+
+    [dropzone, viewportCard].forEach(el => {
+      el.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+      });
+      el.addEventListener("dragleave", () => {
+        dropzone.classList.remove("dragover");
+      });
+      el.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleVideoFile(e.dataTransfer.files[0]);
+        }
+      });
+    });
+
+    btnResetPins.addEventListener("click", () => {
+      loadDefectsData(DEFAULT_DEFECTS, "QA-2026-OCT");
+      videoSourceLabel.innerHTML = `Active: <b>Reference Clip (QA-2026-OCT)</b>`;
+    });
 
     // Initialize View
     setupPinsAndPills();
