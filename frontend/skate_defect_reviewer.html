@@ -1160,6 +1160,29 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
       });
     }
 
+    // Official MCP Apps JSON-RPC over postMessage Bridge
+    let mcpNextId = 1;
+    const mcpPending = {};
+
+    function mcpCallTool(toolName, args, timeoutMs = 10000) {
+      return new Promise((resolve, reject) => {
+        const id = mcpNextId++;
+        mcpPending[id] = { resolve, reject };
+        window.parent.postMessage({
+          jsonrpc: "2.0",
+          id: id,
+          method: "tools/call",
+          params: { name: toolName, arguments: args }
+        }, "*");
+        setTimeout(() => {
+          if (mcpPending[id]) {
+            delete mcpPending[id];
+            reject(new Error("MCP host bridge timeout"));
+          }
+        }, timeoutMs);
+      });
+    }
+
     // Dynamic In-Card Video Scanning with Gemini
     async function scanVideoWithGemini() {
       if (!video || !video.duration || isNaN(video.duration)) {
@@ -1218,17 +1241,36 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
 
         hudDefectIndicator.textContent = "AI EVALUATION: QUERYING VERTEX AI GEMINI 4...";
 
-        const resp = await fetch("/api/analyze_motion", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        let detected = [];
+        try {
+          // Attempt 1: Call through MCP Host postMessage bridge (authenticated via GE IAM)
+          const result = await mcpCallTool("analyze_motion_anomaly_frames", {
+            clip_name: "uploaded_clip.mp4",
             candidates: candidates,
             query: "Frostbite physics collision penetration, skateboard clipping, ragdoll glitch, geometry lock, or animation snap"
-          })
-        });
+          }, 8000);
+          detected = result.defects || [];
+        } catch (mcpErr) {
+          console.warn("MCP postMessage bridge unavailable, trying direct API:", mcpErr);
+          // Attempt 2: Direct API call
+          const resp = await fetch("/api/analyze_motion", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              candidates: candidates,
+              query: "Frostbite physics collision penetration, skateboard clipping, ragdoll glitch, geometry lock, or animation snap"
+            })
+          });
 
-        const data = await resp.json();
-        const detected = data.defects || [];
+          if (resp.status === 403) {
+            showToast("💡 403 Prevented: Ask in chat: 'Scan uploaded video for Skate defects' to run with full GCP IAM access!");
+            hudDefectIndicator.textContent = "AUTH: ASK IN CHAT FOR FULL IAM SCAN";
+            return;
+          }
+
+          const data = await resp.json();
+          detected = data.defects || [];
+        }
 
         if (detected.length > 0) {
           loadDefectsData(detected, "Scanned Video");
@@ -1239,7 +1281,7 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
         }
       } catch (err) {
         console.error("Scan error:", err);
-        showToast("Scan encountered an error querying Vertex AI.");
+        showToast("💡 Ask in chat: 'Scan this video for Skate defects' to run with full IAM access!");
       } finally {
         btnScanVideo.disabled = false;
         btnScanVideo.textContent = "⚡ Scan with Gemini";
@@ -1313,13 +1355,21 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
       showToast("💾 Defect Report Downloaded");
     });
 
-    // postMessage Listener for GE
+    // postMessage Listener for GE & MCP Host
     window.addEventListener("message", (event) => {
       if (!event.data) return;
-      if (event.data.type === "LOAD_DEFECTS") {
-        loadDefectsData(event.data.defects, event.data.sessionId);
-      } else if (event.data.type === "SELECT_DEFECT") {
-        selectDefect(event.data.index);
+      const msg = event.data;
+      if (msg.jsonrpc === "2.0" && msg.id !== undefined && mcpPending[msg.id]) {
+        const p = mcpPending[msg.id];
+        delete mcpPending[msg.id];
+        if (msg.error) p.reject(new Error(msg.error.message || "RPC error"));
+        else p.resolve(msg.result);
+        return;
+      }
+      if (msg.type === "LOAD_DEFECTS") {
+        loadDefectsData(msg.defects, msg.sessionId);
+      } else if (msg.type === "SELECT_DEFECT") {
+        selectDefect(msg.index);
       }
     });
 
