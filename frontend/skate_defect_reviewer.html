@@ -6,18 +6,24 @@
   <title>EA Skate // Frostbite QA Defect Reviewer</title>
   <style>
     :root {
-      --fb-bg: #080c14;
-      --fb-panel: #0d1422;
-      --fb-panel-light: #141f33;
-      --fb-border: #1b2840;
-      --fb-cyan: #00f0ff;
-      --fb-amber: #ffb703;
-      --fb-red: #ff2a55;
-      --fb-green: #00ff88;
-      --fb-text-primary: #e6f1ff;
-      --fb-text-muted: #8ba2c2;
-      --fb-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      --fb-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      /* Authentic EA Games & Frostbite Brand Theme */
+      --ea-red: #ff4747;
+      --ea-red-hover: #ff2a2a;
+      --ea-red-glow: rgba(255, 71, 71, 0.45);
+      --ea-skate-orange: #ff7a00;
+      --ea-bg: #0e0e12;
+      --ea-panel: #16161c;
+      --ea-panel-light: #1f1f28;
+      --ea-border: #2c2c3a;
+      --ea-border-hover: #444457;
+      --ea-cyan: #00f0ff; /* Frostbite physics telemetry accent */
+      --ea-amber: #ffb703;
+      --ea-green: #00e676;
+      --ea-text-primary: #ffffff;
+      --ea-text-secondary: #c5c5d2;
+      --ea-text-muted: #848496;
+      --ea-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --ea-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
     * {
@@ -27,9 +33,9 @@
     }
 
     body {
-      background-color: var(--fb-bg);
-      color: var(--fb-text-primary);
-      font-family: var(--fb-font-sans);
+      background-color: var(--ea-bg);
+      color: var(--ea-text-primary);
+      font-family: var(--ea-font-sans);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -45,13 +51,13 @@
       gap: 12px;
     }
 
-    /* Top Studio Header */
+    /* Top EA Studio Header */
     header {
-      background: var(--fb-panel);
-      border: 1px solid var(--fb-border);
-      border-left: 4px solid var(--fb-cyan);
-      padding: 10px 14px;
-      border-radius: 6px;
+      background: var(--ea-panel);
+      border: 1px solid var(--ea-border);
+      border-left: 4px solid var(--ea-red);
+      padding: 10px 16px;
+      border-radius: 4px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -62,29 +68,38 @@
     .header-brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
-    .live-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--fb-cyan);
-      border-radius: 50%;
-      box-shadow: 0 0 8px var(--fb-cyan);
+    .ea-badge {
+      background: var(--ea-red);
+      color: #fff;
+      font-weight: 900;
+      font-size: 13px;
+      letter-spacing: -0.05em;
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-family: var(--ea-font-sans);
+      box-shadow: 0 0 12px var(--ea-red-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
     }
 
     .brand-title {
       font-size: 13px;
       font-weight: 800;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       color: #fff;
     }
 
     .brand-subtitle {
       font-size: 10px;
-      color: var(--fb-cyan);
-      font-family: var(--fb-font-mono);
+      color: var(--ea-red);
+      font-family: var(--ea-font-mono);
+      letter-spacing: 0.05em;
     }
 
     .header-controls {
@@ -94,23 +109,28 @@
     }
 
     .model-badge-select {
-      background: var(--fb-panel-light);
-      border: 1px solid var(--fb-cyan);
-      color: var(--fb-cyan);
-      font-family: var(--fb-font-mono);
+      background: var(--ea-panel-light);
+      border: 1px solid var(--ea-border);
+      color: var(--ea-text-primary);
+      font-family: var(--ea-font-mono);
       font-size: 11px;
       padding: 5px 10px;
       border-radius: 4px;
       outline: none;
       cursor: pointer;
+      transition: border-color 0.15s ease;
+    }
+
+    .model-badge-select:hover, .model-badge-select:focus {
+      border-color: var(--ea-red);
     }
 
     /* Toolbar for Upload & Ingest */
     .upload-toolbar {
-      background: var(--fb-panel);
-      border: 1px dashed var(--fb-border);
-      border-radius: 6px;
-      padding: 8px 12px;
+      background: var(--ea-panel);
+      border: 1px dashed var(--ea-border);
+      border-radius: 4px;
+      padding: 8px 14px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -120,9 +140,9 @@
     }
 
     .upload-toolbar.dragover {
-      border-color: var(--fb-cyan);
-      background: rgba(0, 240, 255, 0.08);
-      box-shadow: 0 0 16px rgba(0, 240, 255, 0.2);
+      border-color: var(--ea-red);
+      background: rgba(255, 71, 71, 0.08);
+      box-shadow: 0 0 16px var(--ea-red-glow);
     }
 
     .upload-left {
@@ -130,7 +150,8 @@
       align-items: center;
       gap: 8px;
       font-size: 11px;
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
+      color: var(--ea-text-secondary);
     }
 
     .upload-right {
@@ -142,11 +163,11 @@
     /* Video Player Viewport */
     .viewport-card {
       background: #000;
-      border: 1px solid var(--fb-border);
-      border-radius: 6px;
+      border: 1px solid var(--ea-border);
+      border-radius: 4px;
       overflow: hidden;
       position: relative;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
     }
 
     .video-wrapper {
@@ -178,25 +199,25 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: rgba(13, 20, 34, 0.85);
-      border: 2px solid var(--fb-cyan);
+      background: rgba(22, 22, 28, 0.88);
+      border: 2px solid var(--ea-red);
       border-radius: 50%;
       width: 72px;
       height: 72px;
       cursor: pointer;
       z-index: 10;
-      box-shadow: 0 0 24px rgba(0, 240, 255, 0.4);
+      box-shadow: 0 0 24px var(--ea-red-glow);
       transition: all 0.2s ease;
     }
 
     .play-overlay:hover {
       transform: translate(-50%, -50%) scale(1.1);
-      box-shadow: 0 0 32px var(--fb-cyan);
+      box-shadow: 0 0 32px var(--ea-red);
     }
 
     .play-overlay-icon {
       font-size: 26px;
-      color: var(--fb-cyan);
+      color: var(--ea-red);
       margin-left: 4px;
     }
 
@@ -211,20 +232,21 @@
     }
 
     .hud-tag {
-      background: rgba(8, 12, 20, 0.85);
-      border: 1px solid var(--fb-border);
-      padding: 3px 6px;
+      background: rgba(14, 14, 18, 0.9);
+      border: 1px solid var(--ea-border);
+      padding: 3px 8px;
       border-radius: 3px;
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       font-size: 10px;
-      color: var(--fb-cyan);
+      color: var(--ea-red);
+      font-weight: 700;
     }
 
     /* Scrubber & Timeline Section */
     .timeline-card {
-      background: var(--fb-panel);
-      border: 1px solid var(--fb-border);
-      border-radius: 6px;
+      background: var(--ea-panel);
+      border: 1px solid var(--ea-border);
+      border-radius: 4px;
       padding: 12px 16px;
       display: flex;
       flex-direction: column;
@@ -236,8 +258,8 @@
       justify-content: space-between;
       align-items: center;
       font-size: 11px;
-      font-family: var(--fb-font-mono);
-      color: var(--fb-text-muted);
+      font-family: var(--ea-font-mono);
+      color: var(--ea-text-muted);
     }
 
     .timeline-track-container {
@@ -254,7 +276,8 @@
       left: 0;
       right: 0;
       height: 6px;
-      background: #1b263b;
+      background: #1f1f28;
+      border: 1px solid var(--ea-border);
       border-radius: 3px;
       overflow: hidden;
     }
@@ -262,8 +285,8 @@
     .timeline-progress {
       height: 100%;
       width: 0%;
-      background: var(--fb-cyan);
-      box-shadow: 0 0 8px var(--fb-cyan);
+      background: linear-gradient(90deg, var(--ea-red) 0%, var(--ea-skate-orange) 100%);
+      box-shadow: 0 0 10px rgba(255, 71, 71, 0.6);
       transition: width 0.05s linear;
     }
 
@@ -275,15 +298,15 @@
       width: 18px;
       height: 18px;
       border-radius: 50%;
-      background: #0d1422;
-      border: 2px solid var(--fb-amber);
+      background: #16161c;
+      border: 2px solid var(--ea-skate-orange);
       cursor: pointer;
       z-index: 10;
       display: flex;
       align-items: center;
       justify-content: center;
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 0 8px rgba(255, 183, 3, 0.4);
+      box-shadow: 0 0 8px rgba(255, 122, 0, 0.4);
     }
 
     .defect-pin::before {
@@ -291,24 +314,24 @@
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--fb-amber);
+      background: var(--ea-skate-orange);
     }
 
     .defect-pin[data-sev="Blocker"] {
-      border-color: var(--fb-red);
-      box-shadow: 0 0 8px rgba(255, 42, 85, 0.5);
+      border-color: var(--ea-red);
+      box-shadow: 0 0 10px var(--ea-red-glow);
     }
     .defect-pin[data-sev="Blocker"]::before {
-      background: var(--fb-red);
+      background: var(--ea-red);
     }
 
     .defect-pin:hover, .defect-pin.active {
       transform: translate(-50%, -50%) scale(1.35);
-      border-color: var(--fb-cyan);
-      box-shadow: 0 0 16px var(--fb-cyan);
+      border-color: #fff;
+      box-shadow: 0 0 16px var(--ea-red);
     }
     .defect-pin:hover::before, .defect-pin.active::before {
-      background: var(--fb-cyan);
+      background: var(--ea-red);
     }
 
     /* Tooltip: Only on Hover or Active */
@@ -318,16 +341,16 @@
       bottom: 24px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(13, 20, 34, 0.95);
-      border: 1px solid var(--fb-cyan);
+      background: rgba(22, 22, 28, 0.96);
+      border: 1px solid var(--ea-red);
       color: #fff;
-      padding: 3px 6px;
+      padding: 3px 8px;
       font-size: 10px;
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       white-space: nowrap;
       border-radius: 3px;
       pointer-events: none;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
       z-index: 20;
     }
 
@@ -352,53 +375,56 @@
     }
 
     .btn-fb {
-      background: var(--fb-panel-light);
-      border: 1px solid var(--fb-border);
-      color: var(--fb-text-primary);
+      background: var(--ea-panel-light);
+      border: 1px solid var(--ea-border);
+      color: var(--ea-text-primary);
       padding: 6px 12px;
       font-size: 11px;
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       border-radius: 4px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
       transition: all 0.15s ease;
     }
 
     .btn-fb:hover {
-      border-color: var(--fb-cyan);
-      color: var(--fb-cyan);
-      background: rgba(0, 240, 255, 0.08);
+      border-color: var(--ea-red);
+      color: #fff;
+      background: rgba(255, 71, 71, 0.1);
     }
 
     .btn-fb.active {
-      background: var(--fb-cyan);
-      color: #000;
+      background: var(--ea-red);
+      color: #fff;
       font-weight: 700;
-      border-color: var(--fb-cyan);
+      border-color: var(--ea-red);
+      box-shadow: 0 0 10px var(--ea-red-glow);
     }
 
     .btn-primary {
-      background: var(--fb-cyan);
-      color: #000;
+      background: linear-gradient(135deg, #ff4747 0%, #d81e1e 100%);
+      color: #fff;
       font-weight: 700;
-      border-color: var(--fb-cyan);
+      border: 1px solid #ff4747;
+      box-shadow: 0 4px 12px rgba(255, 71, 71, 0.35);
     }
 
     .btn-primary:hover {
-      background: #33f3ff;
-      box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+      background: linear-gradient(135deg, #ff5c5c 0%, #e62222 100%);
+      box-shadow: 0 4px 16px rgba(255, 71, 71, 0.55);
+      border-color: #ff5c5c;
     }
 
     .timecode-display {
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       font-size: 11px;
-      color: var(--fb-text-muted);
+      color: var(--ea-text-muted);
     }
 
     .timecode-active {
-      color: var(--fb-cyan);
+      color: var(--ea-red);
       font-weight: 700;
     }
 
@@ -410,8 +436,8 @@
     }
 
     .pill-btn {
-      background: var(--fb-panel-light);
-      border: 1px solid var(--fb-border);
+      background: var(--ea-panel-light);
+      border: 1px solid var(--ea-border);
       padding: 8px 12px;
       border-radius: 4px;
       cursor: pointer;
@@ -423,20 +449,20 @@
     }
 
     .pill-btn:hover {
-      border-color: var(--fb-cyan);
-      background: rgba(0, 240, 255, 0.05);
+      border-color: var(--ea-red);
+      background: rgba(255, 71, 71, 0.05);
     }
 
     .pill-btn.active {
-      border-color: var(--fb-cyan);
-      background: rgba(0, 240, 255, 0.12);
-      box-shadow: inset 0 0 8px rgba(0, 240, 255, 0.2);
+      border-color: var(--ea-red);
+      background: rgba(255, 71, 71, 0.12);
+      box-shadow: inset 0 0 8px rgba(255, 71, 71, 0.2);
     }
 
     .pill-time {
       font-size: 10px;
-      font-family: var(--fb-font-mono);
-      color: var(--fb-cyan);
+      font-family: var(--ea-font-mono);
+      color: var(--ea-red);
       font-weight: 700;
     }
 
@@ -448,9 +474,10 @@
 
     /* Defect Details Card */
     .defect-card {
-      background: var(--fb-panel);
-      border: 1px solid var(--fb-border);
-      border-radius: 6px;
+      background: var(--ea-panel);
+      border: 1px solid var(--ea-border);
+      border-top: 3px solid var(--ea-red);
+      border-radius: 4px;
       padding: 14px 18px;
       display: flex;
       flex-direction: column;
@@ -463,7 +490,7 @@
       align-items: flex-start;
       flex-wrap: wrap;
       gap: 8px;
-      border-bottom: 1px solid var(--fb-border);
+      border-bottom: 1px solid var(--ea-border);
       padding-bottom: 10px;
     }
 
@@ -475,16 +502,17 @@
     }
 
     .defect-id {
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       font-size: 12px;
       font-weight: 700;
-      color: var(--fb-cyan);
+      color: var(--ea-red);
     }
 
     .defect-name {
       font-size: 15px;
       font-weight: 700;
       color: #fff;
+      letter-spacing: 0.02em;
     }
 
     .badge-group {
@@ -493,7 +521,7 @@
     }
 
     .badge {
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       font-size: 10px;
       font-weight: 700;
       padding: 3px 8px;
@@ -503,21 +531,21 @@
     }
 
     .badge-sev-high {
-      background: rgba(255, 183, 3, 0.15);
-      border: 1px solid var(--fb-amber);
-      color: var(--fb-amber);
+      background: rgba(255, 122, 0, 0.15);
+      border: 1px solid var(--ea-skate-orange);
+      color: var(--ea-skate-orange);
     }
 
     .badge-sev-blocker {
-      background: rgba(255, 42, 85, 0.15);
-      border: 1px solid var(--fb-red);
-      color: var(--fb-red);
+      background: rgba(255, 71, 71, 0.15);
+      border: 1px solid var(--ea-red);
+      color: var(--ea-red);
     }
 
     .badge-subsystem {
       background: rgba(0, 240, 255, 0.12);
-      border: 1px solid var(--fb-cyan);
-      color: var(--fb-cyan);
+      border: 1px solid var(--ea-cyan);
+      color: var(--ea-cyan);
     }
 
     .defect-grid {
@@ -527,29 +555,30 @@
     }
 
     .grid-cell {
-      background: var(--fb-panel-light);
-      border: 1px solid var(--fb-border);
+      background: var(--ea-panel-light);
+      border: 1px solid var(--ea-border);
       padding: 8px 12px;
       border-radius: 4px;
     }
 
     .cell-label {
       font-size: 10px;
-      font-family: var(--fb-font-mono);
-      color: var(--fb-text-muted);
+      font-family: var(--ea-font-mono);
+      color: var(--ea-text-muted);
       text-transform: uppercase;
       margin-bottom: 2px;
     }
 
     .cell-value {
       font-size: 12px;
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       font-weight: 600;
       color: #fff;
     }
 
     .cell-value.cyan {
-      color: var(--fb-cyan);
+      color: var(--ea-cyan);
+      font-weight: 700;
     }
 
     .defect-text-block {
@@ -560,19 +589,19 @@
 
     .block-label {
       font-size: 10px;
-      font-family: var(--fb-font-mono);
+      font-family: var(--ea-font-mono);
       text-transform: uppercase;
-      color: var(--fb-text-muted);
+      color: var(--ea-text-muted);
     }
 
     .block-content {
-      background: var(--fb-panel-light);
-      border: 1px solid var(--fb-border);
+      background: var(--ea-panel-light);
+      border: 1px solid var(--ea-border);
       border-radius: 4px;
       padding: 10px 12px;
       font-size: 12px;
       line-height: 1.5;
-      color: #cfddec;
+      color: var(--ea-text-secondary);
       white-space: pre-line;
     }
 
@@ -582,6 +611,7 @@
       justify-content: flex-end;
       gap: 10px;
       padding-top: 6px;
+      flex-wrap: wrap;
     }
 
     /* Toast Notification */
@@ -589,14 +619,14 @@
       position: fixed;
       bottom: 20px;
       right: 20px;
-      background: var(--fb-cyan);
-      color: #000;
-      font-family: var(--fb-font-mono);
+      background: var(--ea-red);
+      color: #fff;
+      font-family: var(--ea-font-mono);
       font-size: 12px;
       font-weight: 700;
       padding: 8px 16px;
       border-radius: 4px;
-      box-shadow: 0 4px 16px rgba(0, 240, 255, 0.4);
+      box-shadow: 0 4px 16px var(--ea-red-glow);
       display: none;
       z-index: 100;
     }
@@ -605,17 +635,17 @@
 <body>
 
   <div class="container">
-    <!-- Top Header -->
+    <!-- Top EA Studio Header -->
     <header>
       <div class="header-brand">
-        <div class="live-dot"></div>
+        <div class="ea-badge">EA</div>
         <div>
-          <div class="brand-title">Frostbite QA // Telemetry Reviewer</div>
-          <div class="brand-subtitle">EA Skate • Physics Glitch Triage Pipeline</div>
+          <div class="brand-title">Electronic Arts // Frostbite QA Lab</div>
+          <div class="brand-subtitle">EA SKATE • MULTIMODAL PHYSICS TRIAGE</div>
         </div>
       </div>
       <div class="header-controls">
-        <label style="font-size: 10px; font-family: var(--fb-font-mono); color: var(--fb-text-muted);">MODEL:</label>
+        <label style="font-size: 10px; font-family: var(--ea-font-mono); color: var(--ea-text-muted);">MODEL:</label>
         <select class="model-badge-select" id="modelSelector">
           <option value="gemini-4-argon">Gemini 4 Argon (Frostbite Physics • Global)</option>
           <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed Ingest • 6 FPS)</option>
@@ -632,8 +662,8 @@
       </div>
       <div class="upload-right">
         <input type="file" id="videoFileInput" accept="video/mp4,video/webm,video/quicktime,video/*" style="display: none;">
-        <button class="btn-fb" id="btnUploadVideo" style="border-color: var(--fb-cyan); color: var(--fb-cyan); font-weight: 700;">📂 Drag & Drop or Upload MP4</button>
-        <button class="btn-fb btn-primary" id="btnScanVideo" style="background: rgba(0, 240, 255, 0.2); border-color: var(--fb-cyan); color: var(--fb-cyan); font-weight: 700;" title="Scan loaded video frames for real physics glitches with Gemini 4 Argon">⚡ Scan with Gemini</button>
+        <button class="btn-fb" id="btnUploadVideo" style="border-color: var(--ea-red); color: var(--ea-red); font-weight: 700;">📂 Drag & Drop or Upload MP4</button>
+        <button class="btn-fb btn-primary" id="btnScanVideo" title="Scan loaded video frames for real physics glitches with Gemini 4 Argon">⚡ Scan with Gemini</button>
         <button class="btn-fb" id="btnResetPins" title="Reset to reference Frostbite defect pins">🔄 Reference Pins</button>
       </div>
     </div>
@@ -743,7 +773,7 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
       <!-- Actions Footer -->
       <div class="card-footer-actions">
         <button class="btn-fb" id="btnExportJson">💾 Export JSON Report</button>
-        <button class="btn-fb" id="btnDownloadSnippet" style="border-color: var(--fb-amber); color: var(--fb-amber); font-weight: 700;" title="Download exact 10s MP4 snippet of this defect via FFmpeg stream-copy">🎬 Download 10s Bug Clip (.mp4)</button>
+        <button class="btn-fb" id="btnDownloadSnippet" style="border-color: var(--ea-amber); color: var(--ea-amber); font-weight: 700;" title="Download exact 10s MP4 snippet of this defect via FFmpeg stream-copy">🎬 Download 10s Bug Clip (.mp4)</button>
         <button class="btn-fb" id="btnLoopSnippet" title="Toggle continuous 10-second loop around this defect timestamp">🔁 Loop 10s Window</button>
         <button class="btn-fb btn-primary" id="btnFileJira">📋 File EA Jira Ticket</button>
       </div>
@@ -1274,7 +1304,7 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
 
         if (detected.length > 0) {
           loadDefectsData(detected, "Scanned Video");
-          videoSourceLabel.innerHTML = `Scanned: <b style="color: var(--fb-cyan);">${detected.length} Real Defects Detected</b> by Gemini`;
+          videoSourceLabel.innerHTML = `Scanned: <b style="color: var(--ea-red);">${detected.length} Real Defects Detected</b> by Gemini`;
           showToast(`🎯 Scan Complete: Found ${detected.length} genuine physics glitches!`);
         } else {
           showToast("Scan Complete: No severe physics glitches detected in these frames.");
@@ -1379,7 +1409,7 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
     if (videoUrlParam) {
       video.src = videoUrlParam;
     } else if (typeof SERVER_INJECTED_DEFECTS !== "undefined" && SERVER_INJECTED_DEFECTS.length > 0) {
-      videoSourceLabel.innerHTML = 'Active: <b style="color: var(--fb-cyan);">sample_ea.mp4</b> (gs://ea-skate-playtests-15785338844)';
+      videoSourceLabel.innerHTML = 'Active: <b style="color: var(--ea-red);">sample_ea.mp4</b> (gs://ea-skate-playtests-15785338844)';
       video.src = "/api/video_stream";
     }
 
