@@ -515,8 +515,10 @@ async def handle_mcp(request: Request) -> Response:
         csp_meta = {
             "ui": {
                 "csp": {
-                    "connectDomains": ["*"],
+                    "connectDomains": ["*", "blob:", "data:"],
                     "resourceDomains": [
+                        "blob:",
+                        "data:",
                         "https://www.gstatic.com",
                         "https://fonts.googleapis.com",
                         "https://fonts.gstatic.com",
