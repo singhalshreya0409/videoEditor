@@ -1,4 +1,4 @@
-"""Netflix-Inspired Stream-Copy Ingestion Chunker.
+"""Frostbite Zero-Transcode Stream-Copy Ingestion Chunker.
 
 Slices long gameplay recordings (10 min - 1 hour, 1 GB - 5 GB) into contiguous
 10-second windows using FFmpeg stream-copy (-c copy) in ~0.2s without re-encoding.

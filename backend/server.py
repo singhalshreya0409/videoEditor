@@ -3,7 +3,7 @@
 Advanced 2-Stage Hybrid Video QA Engine:
 - Stage 1: Client-Side Optical Flow & Frame Differencing (spikes in pixel velocity / freeze detection)
 - Stage 2: Dense Multimodal AI Verification via Google Cloud Vertex AI Gemini 4 Argon
-- Netflix-Style Stream-Copy Ingestion: 10s windows (-c copy) directly from GCS at 6.0 FPS
+- Frostbite Zero-Transcode Stream Ingestion: 10s windows (-c copy) directly from GCS at 6.0 FPS
 - Studio QA Verification Toolbar with Frame-by-Frame Fine Tuning
 - 1-Click EA Jira Ticket Creation
 """
@@ -401,7 +401,7 @@ async def api_analyze_motion(request: Request) -> Response:
 
 @app.post("/api/analyze_playtest")
 async def api_analyze_playtest(request: Request) -> Response:
-    """Runs Netflix-style stream-copy chunking & Gemini 4 Argon analysis on a playtest video."""
+    """Runs Frostbite zero-transcode stream-copy chunking & Gemini 4 Argon analysis on a playtest video."""
     try:
         body = await request.json()
         session_id = body.get("session_id", "skate_session_01")
@@ -552,7 +552,7 @@ async def handle_mcp(request: Request) -> Response:
                     },
                     {
                         "name": "analyze_playtest_stream",
-                        "description": "Runs Netflix-style stream-copy chunking (-c copy in ~0.2s) and Vertex AI Gemini 4 Argon direct GCS analysis at 6 FPS with Frostbite physics defect schema. Automatically opens the interactive QA Defect Reviewer in the side panel.",
+                        "description": "Runs EA Frostbite zero-transcode stream-copy chunking (-c copy in ~0.2s) and Vertex AI Gemini 4 Argon direct GCS analysis at 6.0 FPS with Frostbite physics defect schema. Trigger with 'Run Frostbite stream analysis on gs://...', 'Analyze playtest stream on gs://...', or 'Run EA Skate stream analysis on gs://...'. Automatically opens the interactive QA Defect Reviewer in the side panel.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -815,7 +815,7 @@ async def handle_mcp(request: Request) -> Response:
                         {
                             "type": "text",
                             "text": (
-                                f"⚡ **Netflix Zero-Transcode Analysis Complete**\n"
+                                f"⚡ **Frostbite Zero-Transcode Stream Analysis Complete**\n"
                                 f"Analyzed `{video_path}` at 6.0 FPS native 1080p using `{MODEL_ID}`.\n"
                                 f"- **Total Defects Found**: {len(raw)}\n\n"
                                 f"Interactive QA Defect Reviewer loaded in the side panel with all {len(raw)} defect pins pinned to the timeline."

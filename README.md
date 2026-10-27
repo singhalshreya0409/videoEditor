@@ -8,7 +8,7 @@ Built using **Google Cloud Vertex AI (Gemini 4 Argon & Gemini 3.8 Flash)**, **Cl
 
 ## 🏛️ System Architecture
 
-Inspired by the battle-tested **Netflix Live Media Analysis** pattern ("Tap, Not a Hop" sidecar):
+Built on the high-throughput **Broadcast Zero-Transcode Media Analysis** pattern ("Tap, Not a Hop" sidecar):
 
 ```
 [ EA Gameplay Recording / Playtest MP4 ] (10 min – 1 hr, 1 GB – 5 GB)
