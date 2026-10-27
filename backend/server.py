@@ -312,6 +312,7 @@ async def handle_mcp(request: Request) -> Response:
     rpc_id = body.get("id")
     method = body.get("method")
     params = body.get("params", {})
+    print(f"MCP RPC: method={method}, id={rpc_id}, params={params}")
 
     # 1. initialize
     if method == "initialize":
@@ -323,6 +324,16 @@ async def handle_mcp(request: Request) -> Response:
                 "capabilities": {
                     "tools": {"listChanged": False},
                     "resources": {"subscribe": False, "listChanged": False},
+                    "experimental": {
+                        "io.modelcontextprotocol/ui": {
+                            "mimeTypes": ["text/html;profile=mcp-app"]
+                        }
+                    },
+                    "extensions": {
+                        "io.modelcontextprotocol/ui": {
+                            "mimeTypes": ["text/html;profile=mcp-app"]
+                        }
+                    },
                 },
                 "serverInfo": {
                     "name": "ea-video-motion-mcp",
@@ -482,12 +493,12 @@ async def handle_mcp(request: Request) -> Response:
                     {
                         "uri": RESOURCE_URI,
                         "name": "EA Video Motion & Optical Flow Bug Analyst",
-                        "mimeType": "text/html",
+                        "mimeType": "text/html;profile=mcp-app",
                     },
                     {
                         "uri": REVIEWER_RESOURCE_URI,
                         "name": "EA Skate Frostbite QA Defect Reviewer",
-                        "mimeType": "text/html",
+                        "mimeType": "text/html;profile=mcp-app",
                     }
                 ]
             },
@@ -499,17 +510,33 @@ async def handle_mcp(request: Request) -> Response:
 
     # 5. resources/read
     elif method == "resources/read":
-        uri = params.get("uri", "")
-        if uri == REVIEWER_RESOURCE_URI:
+        raw_uri = params.get("uri", "")
+        base_uri = raw_uri.split("#")[0]
+        csp_meta = {
+            "ui": {
+                "csp": {
+                    "connectDomains": ["*"],
+                    "resourceDomains": [
+                        "https://www.gstatic.com",
+                        "https://fonts.googleapis.com",
+                        "https://fonts.gstatic.com",
+                        "https://commondatastorage.googleapis.com",
+                        "https://storage.googleapis.com"
+                    ]
+                }
+            }
+        }
+        if base_uri == REVIEWER_RESOURCE_URI:
             return JSONResponse({
                 "jsonrpc": "2.0",
                 "id": rpc_id,
                 "result": {
                     "contents": [
                         {
-                            "uri": REVIEWER_RESOURCE_URI,
-                            "mimeType": "text/html",
+                            "uri": raw_uri,
+                            "mimeType": "text/html;profile=mcp-app",
                             "text": get_reviewer_html(),
+                            "_meta": csp_meta,
                         }
                     ]
                 },
@@ -521,9 +548,10 @@ async def handle_mcp(request: Request) -> Response:
                 "result": {
                     "contents": [
                         {
-                            "uri": RESOURCE_URI,
-                            "mimeType": "text/html",
+                            "uri": raw_uri,
+                            "mimeType": "text/html;profile=mcp-app",
                             "text": get_widget_html(),
+                            "_meta": csp_meta,
                         }
                     ]
                 },
@@ -556,7 +584,10 @@ async def handle_mcp(request: Request) -> Response:
                         "ui": {
                             "resourceUri": RESOURCE_URI,
                             "preferredMode": "pip",
-                        }
+                        },
+                        "io.modelcontextprotocol/ui": {
+                            "resourceUri": RESOURCE_URI,
+                        },
                     },
                 },
             })
@@ -583,7 +614,10 @@ async def handle_mcp(request: Request) -> Response:
                         "ui": {
                             "resourceUri": REVIEWER_RESOURCE_URI,
                             "preferredMode": "pip",
-                        }
+                        },
+                        "io.modelcontextprotocol/ui": {
+                            "resourceUri": REVIEWER_RESOURCE_URI,
+                        },
                     },
                 },
             })
