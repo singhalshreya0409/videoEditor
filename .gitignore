@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large Media & Video Files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Temporary / Scratch Files
+/tmp/
+*.log
+
+# Environments
+.env
+.venv/
+venv/
+ENV/
+
+# OS Specific
+.DS_Store
+Thumbs.db

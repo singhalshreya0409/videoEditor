@@ -2,7 +2,8 @@
 
 Advanced 2-Stage Hybrid Video QA Engine:
 - Stage 1: Client-Side Optical Flow & Frame Differencing (spikes in pixel velocity / freeze detection)
-- Stage 2: Dense Multimodal AI Verification via Google Cloud Vertex AI Gemini
+- Stage 2: Dense Multimodal AI Verification via Google Cloud Vertex AI Gemini 4 Argon
+- Netflix-Style Stream-Copy Ingestion: 10s windows (-c copy) directly from GCS at 6.0 FPS
 - Studio QA Verification Toolbar with Frame-by-Frame Fine Tuning
 - 1-Click EA Jira Ticket Creation
 """
@@ -12,14 +13,21 @@ import os
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from gemini_analyzer import GeminiPlaytestAnalyzer
+from ingest_chunker import PlaytestStreamChunker
+
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "brand-sentinel-demo")
-LOCATION = "global"
-MODEL_ID = "gemini-4-argon"
+LOCATION = os.environ.get("VERTEX_LOCATION", "global")
+MODEL_ID = os.environ.get("VERTEX_MODEL", "gemini-4-argon")
+GCS_BUCKET = os.environ.get("GCS_BUCKET", f"ea-skate-playtests-15785338844")
+
+# In-memory store for session defect analysis results
+SESSION_RESULTS_STORE: Dict[str, Dict[str, Any]] = {}
 
 
 def get_auth_token() -> str:
@@ -170,24 +178,59 @@ app.add_middleware(
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 MOTION_ANALYST_HTML_PATH = TEMPLATES_DIR / "motion_analyst.html"
+SKATE_REVIEWER_HTML_PATH = TEMPLATES_DIR / "skate_defect_reviewer.html"
+
+RESOURCE_URI = "ui://ea-video/motion-analyst.html"
+REVIEWER_RESOURCE_URI = "ui://ea-skate/defect-reviewer.html"
 
 
 def get_widget_html() -> str:
-    with open(MOTION_ANALYST_HTML_PATH, "r", encoding="utf-8") as f:
-        return f.read()
+    if MOTION_ANALYST_HTML_PATH.exists():
+        with open(MOTION_ANALYST_HTML_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>EA Video Motion Analyst Template Not Found</h1>"
 
 
-RESOURCE_URI = "ui://ea-video/motion-analyst.html"
+def get_reviewer_html() -> str:
+    if SKATE_REVIEWER_HTML_PATH.exists():
+        with open(SKATE_REVIEWER_HTML_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>EA Skate Defect Reviewer Template Not Found</h1>"
 
 
 @app.get("/")
 def health_check() -> Dict[str, str]:
-    return {"status": "ok", "app": "ea-video-motion-mcp", "version": "2.0.0-opticalflow"}
+    return {
+        "status": "ok",
+        "app": "ea-video-motion-mcp",
+        "version": "2.1.0-stream-copy",
+        "model": MODEL_ID,
+        "location": LOCATION,
+        "bucket": GCS_BUCKET
+    }
 
 
 @app.get("/widget")
+@app.get("/motion")
 def get_widget() -> Response:
     return Response(content=get_widget_html(), media_type="text/html")
+
+
+@app.get("/reviewer")
+def get_reviewer() -> Response:
+    return Response(content=get_reviewer_html(), media_type="text/html")
+
+
+@app.get("/api/playtest_results")
+def get_playtest_results(session_id: str) -> Response:
+    """Returns analyzed defect events for a playtest session."""
+    data = SESSION_RESULTS_STORE.get(session_id)
+    if data:
+        return JSONResponse(data)
+    return JSONResponse(
+        status_code=404,
+        content={"error": f"Session '{session_id}' not found in results registry."}
+    )
 
 
 @app.post("/api/analyze_motion")
@@ -198,6 +241,60 @@ async def api_analyze_motion(request: Request) -> Response:
         query = body.get("query", None)
         defects = evaluate_motion_candidates_with_gemini(candidates, query=query)
         return JSONResponse({"defects": defects})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e), "defects": []})
+
+
+@app.post("/api/analyze_playtest")
+async def api_analyze_playtest(request: Request) -> Response:
+    """Runs Netflix-style stream-copy chunking & Gemini 4 Argon analysis on a playtest video."""
+    try:
+        body = await request.json()
+        session_id = body.get("session_id", "skate_session_01")
+        video_path = body.get("video_path")  # Local file or gs:// URI
+        total_duration = float(body.get("duration_sec", 60.0))
+
+        analyzer = GeminiPlaytestAnalyzer(project=PROJECT_ID, location=LOCATION, model_name=MODEL_ID)
+        all_defects = []
+
+        if video_path and video_path.startswith("gs://"):
+            # Direct GCS URI passthrough
+            res = analyzer.analyze_window(
+                gcs_video_uri=video_path,
+                session_id=session_id,
+                start_offset_sec=0.0,
+                end_offset_sec=total_duration
+            )
+            raw_defects = [d.to_dict() if hasattr(d, "to_dict") else d.model_dump() for d in res.defects]
+            all_defects.extend(raw_defects)
+        elif video_path and os.path.exists(video_path):
+            chunker = PlaytestStreamChunker(gcs_bucket_name=GCS_BUCKET)
+            chunks = chunker.slice_and_upload_windows(
+                input_video_path=video_path,
+                session_id=session_id,
+                total_duration_sec=total_duration
+            )
+            rolling_context = None
+            for c in chunks:
+                res = analyzer.analyze_window(
+                    gcs_video_uri=c["gcs_uri"],
+                    session_id=session_id,
+                    start_offset_sec=c["start_offset_sec"],
+                    end_offset_sec=c["end_offset_sec"],
+                    rolling_context=rolling_context
+                )
+                raw = [d.to_dict() if hasattr(d, "to_dict") else d.model_dump() for d in res.defects]
+                all_defects.extend(raw)
+                if raw:
+                    rolling_context = f"Glitch at {raw[-1].get('timestamp', '')}: {raw[-1].get('glitch_type', '')}"
+
+        result_payload = {
+            "session_id": session_id,
+            "total_defects": len(all_defects),
+            "defects": all_defects
+        }
+        SESSION_RESULTS_STORE[session_id] = result_payload
+        return JSONResponse(result_payload)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "defects": []})
 
@@ -229,7 +326,7 @@ async def handle_mcp(request: Request) -> Response:
                 },
                 "serverInfo": {
                     "name": "ea-video-motion-mcp",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                 },
             },
         })
@@ -262,6 +359,49 @@ async def handle_mcp(request: Request) -> Response:
                             },
                             "io.modelcontextprotocol/ui": {
                                 "resourceUri": RESOURCE_URI,
+                            },
+                        },
+                    },
+                    {
+                        "name": "open_skate_defect_reviewer",
+                        "description": "Opens the interactive EA Skate Frostbite QA Defect Reviewer in the side panel with interactive timeline scrubber, clickable defect pins (00:12 Curb Snapping, 00:20 Ragdoll Inversion, 00:47 Impulse Launch), 0.5x Slow-Mo, and live Frostbite telemetry.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "session_id": {"type": "string", "description": "Playtest session ID to display, e.g. QA-2026-OCT"}
+                            }
+                        },
+                        "annotations": {
+                            "readOnlyHint": True,
+                        },
+                        "_meta": {
+                            "ui": {
+                                "resourceUri": REVIEWER_RESOURCE_URI,
+                                "preferredMode": "pip",
+                                "visibility": ["model", "app"],
+                            },
+                            "io.modelcontextprotocol/ui": {
+                                "resourceUri": REVIEWER_RESOURCE_URI,
+                            },
+                        },
+                    },
+                    {
+                        "name": "analyze_playtest_stream",
+                        "description": "Runs Netflix-style stream-copy chunking (-c copy in ~0.2s) and Vertex AI Gemini 4 Argon direct GCS analysis at 6 FPS with Frostbite physics defect schema.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "video_path": {"type": "string", "description": "GCS URI (gs://...) or local video path to analyze"},
+                                "session_id": {"type": "string", "description": "Session ID identifier"}
+                            },
+                            "required": ["video_path"]
+                        },
+                        "annotations": {
+                            "readOnlyHint": True,
+                        },
+                        "_meta": {
+                            "ui": {
+                                "visibility": ["model", "app"],
                             },
                         },
                     },
@@ -343,6 +483,11 @@ async def handle_mcp(request: Request) -> Response:
                         "uri": RESOURCE_URI,
                         "name": "EA Video Motion & Optical Flow Bug Analyst",
                         "mimeType": "text/html",
+                    },
+                    {
+                        "uri": REVIEWER_RESOURCE_URI,
+                        "name": "EA Skate Frostbite QA Defect Reviewer",
+                        "mimeType": "text/html",
                     }
                 ]
             },
@@ -355,19 +500,34 @@ async def handle_mcp(request: Request) -> Response:
     # 5. resources/read
     elif method == "resources/read":
         uri = params.get("uri", "")
-        return JSONResponse({
-            "jsonrpc": "2.0",
-            "id": rpc_id,
-            "result": {
-                "contents": [
-                    {
-                        "uri": RESOURCE_URI,
-                        "mimeType": "text/html",
-                        "text": get_widget_html(),
-                    }
-                ]
-            },
-        })
+        if uri == REVIEWER_RESOURCE_URI:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "contents": [
+                        {
+                            "uri": REVIEWER_RESOURCE_URI,
+                            "mimeType": "text/html",
+                            "text": get_reviewer_html(),
+                        }
+                    ]
+                },
+            })
+        else:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "contents": [
+                        {
+                            "uri": RESOURCE_URI,
+                            "mimeType": "text/html",
+                            "text": get_widget_html(),
+                        }
+                    ]
+                },
+            })
 
     # 6. tools/call
     elif method == "tools/call":
@@ -387,7 +547,7 @@ async def handle_mcp(request: Request) -> Response:
                                 f"🎥 **EA Optical Flow & Motion Anomaly Bug Analyst Loaded**\n\n"
                                 f"Active Session: `{clip_name}`\n"
                                 f"- **Stage 1**: Client-side Optical Flow & motion vector differencing.\n"
-                                f"- **Stage 2**: Multimodal AI semantic defect verification powered by Gemini 2.5 Flash.\n\n"
+                                f"- **Stage 2**: Multimodal AI semantic defect verification powered by Gemini 4 Argon.\n\n"
                                 "Drag & drop your gameplay video to generate a live motion heatmap and isolate sudden velocity spikes."
                             ),
                         }
@@ -399,6 +559,62 @@ async def handle_mcp(request: Request) -> Response:
                         }
                     },
                 },
+            })
+
+        elif tool_name == "open_skate_defect_reviewer":
+            session_id = args.get("session_id", "QA-2026-OCT")
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"🛹 **EA Skate Frostbite QA Defect Reviewer Loaded**\n\n"
+                                f"Active Session: `{session_id}`\n"
+                                f"- **Interactive Defect Pins**: `00:12` Curb Snapping, `00:20` Ragdoll Inversion, `00:47` Impulse Launch.\n"
+                                f"- **Controls**: `0.5x Slow-Mo`, frame-by-frame scrubbing (`±1.0s`), keyboard shortcuts (`Space`, `←`/`→`, `1`-`3`).\n"
+                                f"- **Telemetry**: Live Frostbite rigid body & solver telemetry breakdown."
+                            ),
+                        }
+                    ],
+                    "_meta": {
+                        "ui": {
+                            "resourceUri": REVIEWER_RESOURCE_URI,
+                            "preferredMode": "pip",
+                        }
+                    },
+                },
+            })
+
+        elif tool_name == "analyze_playtest_stream":
+            video_path = args.get("video_path", "")
+            session_id = args.get("session_id", "skate_playtest_auto")
+            analyzer = GeminiPlaytestAnalyzer(project=PROJECT_ID, location=LOCATION, model_name=MODEL_ID)
+            res = analyzer.analyze_window(
+                gcs_video_uri=video_path,
+                session_id=session_id,
+                start_offset_sec=0.0,
+                end_offset_sec=10.0
+            )
+            raw = [d.to_dict() if hasattr(d, "to_dict") else d.model_dump() for d in res.defects]
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"⚡ **Netflix Zero-Transcode Analysis Complete**\n"
+                                f"Analyzed `{video_path}` at 6.0 FPS native 1080p using `{MODEL_ID}`.\n"
+                                f"- **Total Defects Found**: {res.total_defects_found}\n"
+                            )
+                        }
+                    ],
+                    "defects": raw
+                }
             })
 
         elif tool_name == "analyze_motion_anomaly_frames":
