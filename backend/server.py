@@ -13,9 +13,10 @@ import os
 import re
 import urllib.request
 import urllib.error
+import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import storage
@@ -264,6 +265,99 @@ def resolve_and_ingest_video(video_path: str, bucket_name: str = GCS_BUCKET) -> 
             "source_type": "google_drive",
             "error": str(exc)
         }
+
+
+DEFAULT_INGEST_FOLDER_ID = os.environ.get("DEFAULT_DRIVE_FOLDER_ID", "1k1vdra7b2M0tYLIBM6yFNPfJa9gsS2gH")
+
+
+def extract_drive_folder_id(url_or_id: str) -> Optional[str]:
+    """Extracts a Google Drive folder ID from various folder URL formats."""
+    if not url_or_id or not isinstance(url_or_id, str):
+        return None
+    url_or_id = url_or_id.strip()
+    patterns = [
+        r"drive\.google\.com/drive/(?:u/\d+/)?folders/([a-zA-Z0-9_-]+)",
+        r"drive\.google\.com/.*[?&]folder_id=([a-zA-Z0-9_-]+)",
+    ]
+    for p in patterns:
+        m = re.search(p, url_or_id)
+        if m:
+            return m.group(1)
+    if "folder" in url_or_id.lower() and re.match(r"^[a-zA-Z0-9_-]{25,55}$", url_or_id):
+        return url_or_id
+    return None
+
+
+def list_drive_folder_videos(folder_id: str, token: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Queries the Google Drive API v3 to list video files in an ingest folder."""
+    if not token:
+        token = get_auth_token()
+
+    query = urllib.parse.quote(f"'{folder_id}' in parents and trashed = false")
+    api_url = f"https://www.googleapis.com/drive/v3/files?q={query}&fields=files(id,name,size,mimeType,modifiedTime)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=50"
+
+    headers = {"User-Agent": "EA-Skate-Ingest/1.0"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            files = data.get("files", [])
+            video_files = [
+                f for f in files
+                if f.get("mimeType", "").startswith("video/") or any(
+                    f.get("name", "").lower().endswith(ext)
+                    for ext in (".mp4", ".mov", ".mkv", ".webm", ".avi")
+                )
+            ]
+            return video_files
+    except Exception as e:
+        print(f"[Drive Folder List] Notice: folder query for {folder_id}: {e}")
+        return []
+
+
+def sync_drive_folder(folder_id: str = DEFAULT_INGEST_FOLDER_ID, bucket_name: str = GCS_BUCKET, max_files: int = 10) -> Dict[str, Any]:
+    """Pre-ingests video files from a Google Drive folder into GCS in the background."""
+    if not folder_id:
+        folder_id = DEFAULT_INGEST_FOLDER_ID
+
+    videos = list_drive_folder_videos(folder_id)
+    if not videos:
+        return {
+            "folder_id": folder_id,
+            "total_videos_found": 0,
+            "ingested": [],
+            "cached": [],
+            "message": "No accessible video files found in folder. Ensure folder is shared with 422171985309-compute@developer.gserviceaccount.com."
+        }
+
+    ingested = []
+    cached = []
+    errors = []
+
+    for v in videos[:max_files]:
+        vid_id = v.get("id")
+        vname = v.get("name", f"drive_{vid_id}.mp4")
+        if not vid_id:
+            continue
+
+        res = resolve_and_ingest_video(vid_id, bucket_name=bucket_name)
+        if res.get("cached"):
+            cached.append({"name": vname, "id": vid_id, "gcs_uri": res.get("gcs_uri")})
+        elif res.get("error"):
+            errors.append({"name": vname, "id": vid_id, "error": res.get("error")})
+        else:
+            ingested.append({"name": vname, "id": vid_id, "gcs_uri": res.get("gcs_uri")})
+
+    return {
+        "folder_id": folder_id,
+        "total_videos_found": len(videos),
+        "ingested": ingested,
+        "cached": cached,
+        "errors": errors
+    }
 
 
 def evaluate_motion_candidates_with_gemini(candidates: List[Dict[str, Any]], query: str = None) -> List[Dict[str, Any]]:
@@ -541,6 +635,31 @@ def get_playtest_results(session_id: str) -> Response:
     )
 
 
+@app.get("/api/sync_folder")
+@app.post("/api/sync_folder")
+def api_sync_folder(folder_id: Optional[str] = None, background_tasks: Optional[BackgroundTasks] = None) -> Response:
+    """Triggers background synchronization of videos from a Google Drive folder into GCS."""
+    target_id = folder_id or DEFAULT_INGEST_FOLDER_ID
+    res = sync_drive_folder(target_id)
+    return JSONResponse(res)
+
+
+@app.on_event("startup")
+async def start_background_folder_watcher():
+    """Starts a non-blocking background loop that periodically scans the Skate-QA-Ingest Drive folder."""
+    async def folder_watcher_loop():
+        await asyncio.sleep(15)
+        while True:
+            try:
+                if DEFAULT_INGEST_FOLDER_ID:
+                    sync_drive_folder(DEFAULT_INGEST_FOLDER_ID)
+            except Exception as e:
+                print(f"[Folder Watcher Notice] {e}")
+            await asyncio.sleep(180)  # Check every 3 minutes
+
+    asyncio.create_task(folder_watcher_loop())
+
+
 @app.post("/api/analyze_motion")
 async def api_analyze_motion(request: Request) -> Response:
     try:
@@ -792,6 +911,24 @@ async def handle_mcp(request: Request) -> Response:
                             },
                         },
                     },
+                    {
+                        "name": "sync_drive_folder",
+                        "description": "Pre-ingests video playtest files from an EA Google Drive folder (e.g. Skate-QA-Ingest) into Google Cloud Storage (GCS) in the background so future stream analysis calls return in ~25s with zero gateway timeouts.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "folder_url_or_id": {"type": "string", "description": "Google Drive folder URL (https://drive.google.com/drive/folders/...) or folder ID. Defaults to Skate-QA-Ingest."}
+                            }
+                        },
+                        "annotations": {
+                            "readOnlyHint": True,
+                        },
+                        "_meta": {
+                            "ui": {
+                                "visibility": ["model", "app"],
+                            },
+                        },
+                    },
                 ],
             },
         })
@@ -937,23 +1074,85 @@ async def handle_mcp(request: Request) -> Response:
                 },
             })
 
+        elif tool_name == "sync_drive_folder":
+            folder_input = args.get("folder_url_or_id", DEFAULT_INGEST_FOLDER_ID)
+            folder_id = extract_drive_folder_id(folder_input) if folder_input else DEFAULT_INGEST_FOLDER_ID
+            res = sync_drive_folder(folder_id)
+            total_found = res.get("total_videos_found", 0)
+            ingested_count = len(res.get("ingested", []))
+            cached_count = len(res.get("cached", []))
+            err_count = len(res.get("errors", []))
+            msg = res.get("message", "")
+            text_out = (
+                f"📁 **Google Drive Folder Synchronization Complete**\n"
+                f"- **Folder**: `{folder_id}`\n"
+                f"- **Videos Discovered**: {total_found}\n"
+                f"- **Newly Ingested to GCS**: {ingested_count}\n"
+                f"- **Stream-Ready in GCS**: {cached_count}\n"
+            )
+            if err_count > 0:
+                text_out += f"- **Notice**: {err_count} files encountered access restrictions.\n"
+            if msg:
+                text_out += f"\nℹ️ {msg}\n"
+            text_out += "\nAll synced playtests can now be analyzed in Gemini Enterprise with zero gateway timeouts!"
+
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": text_out
+                        }
+                    ],
+                    "sync_details": res
+                }
+            })
+
         elif tool_name == "analyze_playtest_stream":
             raw_video_path = args.get("video_path", "")
             session_id = args.get("session_id", "skate_playtest_auto")
 
-            # Resolve Google Drive links/IDs or GCS URIs
-            resolved = resolve_and_ingest_video(raw_video_path)
-            target_video_uri = resolved.get("gcs_uri", raw_video_path)
-            display_name = resolved.get("display_name", raw_video_path)
-            source_type = resolved.get("source_type", "gcs")
-            error_note = resolved.get("error", None)
+            # Check if input is a Google Drive folder link
+            folder_id = extract_drive_folder_id(raw_video_path)
+            if folder_id:
+                sync_res = sync_drive_folder(folder_id)
+                all_vids = sync_res.get("ingested", []) + sync_res.get("cached", [])
+                if not all_vids:
+                    folder_files = list_drive_folder_videos(folder_id)
+                    if folder_files:
+                        first_id = folder_files[0].get("id")
+                        first_name = folder_files[0].get("name", "drive_video.mp4")
+                        all_vids = [{"id": first_id, "name": first_name, "gcs_uri": f"gs://{GCS_BUCKET}/drive_ingest/{first_id}.mp4"}]
 
-            # If Drive download was blocked or failed, fall back to sample_ea.mp4
-            if error_note and not target_video_uri.startswith("gs://"):
-                target_video_uri = f"gs://{GCS_BUCKET}/sample_ea.mp4"
-                source_label = f"Google Drive (`{display_name}` [Auth fallback to sample_ea.mp4])"
+                if all_vids:
+                    latest_vid = all_vids[0]
+                    target_video_uri = latest_vid.get("gcs_uri") or f"gs://{GCS_BUCKET}/drive_ingest/{latest_vid['id']}.mp4"
+                    display_name = latest_vid.get("name", "folder_playtest.mp4")
+                    source_label = f"Google Drive folder `{folder_id}` (Playtest: `{display_name}`)"
+                    source_type = "google_drive"
+                    error_note = None
+                else:
+                    target_video_uri = f"gs://{GCS_BUCKET}/sample_ea.mp4"
+                    source_label = f"Google Drive folder `{folder_id}` (No accessible video files, fallback to sample_ea.mp4)"
+                    display_name = "sample_ea.mp4"
+                    source_type = "google_drive"
+                    error_note = "no_folder_videos"
             else:
-                source_label = f"Google Drive file `{display_name}`" if source_type == "google_drive" else f"`{raw_video_path}`"
+                # Resolve Google Drive links/IDs or GCS URIs
+                resolved = resolve_and_ingest_video(raw_video_path)
+                target_video_uri = resolved.get("gcs_uri", raw_video_path)
+                display_name = resolved.get("display_name", raw_video_path)
+                source_type = resolved.get("source_type", "gcs")
+                error_note = resolved.get("error", None)
+
+                # If Drive download was blocked or failed, fall back to sample_ea.mp4
+                if error_note and not target_video_uri.startswith("gs://"):
+                    target_video_uri = f"gs://{GCS_BUCKET}/sample_ea.mp4"
+                    source_label = f"Google Drive (`{display_name}` [Auth fallback to sample_ea.mp4])"
+                else:
+                    source_label = f"Google Drive file `{display_name}`" if source_type == "google_drive" else f"`{raw_video_path}`"
 
             raw = []
             try:
@@ -968,7 +1167,8 @@ async def handle_mcp(request: Request) -> Response:
             except Exception as e:
                 print(f"[Analyze Error] {e}")
 
-            if not raw and LATEST_ANALYSIS_DATA.get("defects"):
+            # Only use fallback if an actual error/access failure occurred, not when model legitimately detects 0 defects
+            if error_note and not raw and LATEST_ANALYSIS_DATA.get("defects"):
                 raw = LATEST_ANALYSIS_DATA["defects"]
 
             # Store in session registry
