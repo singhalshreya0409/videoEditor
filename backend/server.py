@@ -815,7 +815,7 @@ async def handle_mcp(request: Request) -> Response:
                         "_meta": {
                             "ui": {
                                 "resourceUri": REVIEWER_RESOURCE_URI,
-                                "preferredMode": "pip",
+                                "preferredMode": "sidePanel",
                                 "visibility": ["model", "app"],
                             },
                             "io.modelcontextprotocol/ui": {
@@ -840,7 +840,7 @@ async def handle_mcp(request: Request) -> Response:
                         "_meta": {
                             "ui": {
                                 "resourceUri": REVIEWER_RESOURCE_URI,
-                                "preferredMode": "pip",
+                                "preferredMode": "sidePanel",
                                 "visibility": ["model", "app"],
                             },
                             "io.modelcontextprotocol/ui": {
@@ -1065,7 +1065,7 @@ async def handle_mcp(request: Request) -> Response:
                     "_meta": {
                         "ui": {
                             "resourceUri": REVIEWER_RESOURCE_URI,
-                            "preferredMode": "pip",
+                            "preferredMode": "sidePanel",
                         },
                         "io.modelcontextprotocol/ui": {
                             "resourceUri": REVIEWER_RESOURCE_URI,
@@ -1202,7 +1202,7 @@ async def handle_mcp(request: Request) -> Response:
                     "_meta": {
                         "ui": {
                             "resourceUri": REVIEWER_RESOURCE_URI,
-                            "preferredMode": "pip",
+                            "preferredMode": "sidePanel",
                         },
                         "io.modelcontextprotocol/ui": {
                             "resourceUri": REVIEWER_RESOURCE_URI,
