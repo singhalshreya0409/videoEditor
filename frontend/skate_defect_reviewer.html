@@ -906,11 +906,21 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
 
     function toggleDashboardFullscreen() {
       const doc = document.documentElement;
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ jsonrpc: "2.0", id: Date.now(), method: "ui/request-display-mode", params: { mode: "pip" } }, "*");
+      }
       if (!document.fullscreenElement && !document.webkitFullscreenElement) {
         if (doc.requestFullscreen) {
-          doc.requestFullscreen();
+          doc.requestFullscreen().catch(err => {
+            console.warn("Native fullscreen blocked in iframe sandbox, opening full tab:", err);
+            window.open("/reviewer", "_blank");
+          });
         } else if (doc.webkitRequestFullscreen) {
-          doc.webkitRequestFullscreen();
+          doc.webkitRequestFullscreen().catch(err => {
+            window.open("/reviewer", "_blank");
+          });
+        } else {
+          window.open("/reviewer", "_blank");
         }
       } else {
         if (document.exitFullscreen) {
@@ -1432,6 +1442,13 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
       const activeDesc = (typeof SERVER_INJECTED_SOURCE_DESC !== "undefined" && SERVER_INJECTED_SOURCE_DESC) ? SERVER_INJECTED_SOURCE_DESC : "gs://ea-skate-playtests-15785338844";
       videoSourceLabel.innerHTML = `Active: <b style="color: var(--ea-red);">${activeName}</b> (${activeDesc})`;
       video.src = "/api/video_stream";
+    }
+
+    // AppBridge handshake for Gemini Enterprise side panel docking
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ jsonrpc: "2.0", id: 1, method: "ui/initialize", params: {} }, "*");
+      window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }, "*");
+      window.parent.postMessage({ jsonrpc: "2.0", id: 2, method: "ui/request-display-mode", params: { mode: "pip" } }, "*");
     }
 
     setupPinsAndPills();

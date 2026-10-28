@@ -651,6 +651,7 @@
           <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed Ingest • 6 FPS)</option>
           <option value="gemini-2.5-flash">Gemini 2.5 Flash (Standard QA)</option>
         </select>
+        <button class="btn-fb" id="btnFullscreen" onclick="toggleDashboardFullscreen()" style="border-color: var(--ea-text-muted); font-size: 11px; padding: 4px 10px; background: rgba(255,255,255,0.06); cursor: pointer;" title="Toggle Fullscreen">⛶ Fullscreen</button>
       </div>
     </header>
 
@@ -665,6 +666,7 @@
         <button class="btn-fb" id="btnUploadVideo" style="border-color: var(--ea-red); color: var(--ea-red); font-weight: 700;">📂 Drag & Drop or Upload MP4</button>
         <button class="btn-fb btn-primary" id="btnScanVideo" title="Scan loaded video frames for real physics glitches with Gemini 4 Argon">⚡ Scan with Gemini</button>
         <button class="btn-fb" id="btnResetPins" title="Reset to reference Frostbite defect pins">🔄 Reference Pins</button>
+        <a href="/reviewer" target="_blank" class="btn-fb" style="text-decoration:none; border-color: var(--ea-border); color: #fff; display: inline-flex; align-items: center; gap: 4px;" title="Open Studio Reviewer in a dedicated full browser tab">↗ Full Tab</a>
       </div>
     </div>
 
@@ -900,6 +902,33 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
       toast.textContent = msg;
       toast.style.display = "block";
       setTimeout(() => { toast.style.display = "none"; }, 3000);
+    }
+
+    function toggleDashboardFullscreen() {
+      const doc = document.documentElement;
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ jsonrpc: "2.0", id: Date.now(), method: "ui/request-display-mode", params: { mode: "pip" } }, "*");
+      }
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (doc.requestFullscreen) {
+          doc.requestFullscreen().catch(err => {
+            console.warn("Native fullscreen blocked in iframe sandbox, opening full tab:", err);
+            window.open("/reviewer", "_blank");
+          });
+        } else if (doc.webkitRequestFullscreen) {
+          doc.webkitRequestFullscreen().catch(err => {
+            window.open("/reviewer", "_blank");
+          });
+        } else {
+          window.open("/reviewer", "_blank");
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+      }
     }
 
     // Format Seconds to MM:SS.SS
@@ -1413,6 +1442,13 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
       const activeDesc = (typeof SERVER_INJECTED_SOURCE_DESC !== "undefined" && SERVER_INJECTED_SOURCE_DESC) ? SERVER_INJECTED_SOURCE_DESC : "gs://ea-skate-playtests-15785338844";
       videoSourceLabel.innerHTML = `Active: <b style="color: var(--ea-red);">${activeName}</b> (${activeDesc})`;
       video.src = "/api/video_stream";
+    }
+
+    // AppBridge handshake for Gemini Enterprise side panel docking
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ jsonrpc: "2.0", id: 1, method: "ui/initialize", params: {} }, "*");
+      window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }, "*");
+      window.parent.postMessage({ jsonrpc: "2.0", id: 2, method: "ui/request-display-mode", params: { mode: "pip" } }, "*");
     }
 
     setupPinsAndPills();
