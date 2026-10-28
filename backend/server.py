@@ -10,6 +10,7 @@ Advanced 2-Stage Hybrid Video QA Engine:
 
 import json
 import os
+import re
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from google.cloud import storage
 
 from gemini_analyzer import GeminiPlaytestAnalyzer
 from ingest_chunker import PlaytestStreamChunker
@@ -123,6 +125,130 @@ def get_auth_token() -> str:
         return subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
     except Exception:
         return ""
+
+
+def extract_drive_id(url_or_id: str) -> Optional[str]:
+    """Extracts a Google Drive file ID from various Drive URL formats or returns the ID if already clean."""
+    if not url_or_id or not isinstance(url_or_id, str):
+        return None
+    url_or_id = url_or_id.strip()
+    patterns = [
+        r'drive\.google\.com/file/d/([a-zA-Z0-9_-]+)',
+        r'drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)',
+        r'drive\.google\.com/uc\?.*id=([a-zA-Z0-9_-]+)',
+        r'drive\.google\.com/.*[?&]id=([a-zA-Z0-9_-]+)',
+        r'docs\.google\.com/file/d/([a-zA-Z0-9_-]+)',
+    ]
+    for p in patterns:
+        m = re.search(p, url_or_id)
+        if m:
+            return m.group(1)
+    if re.match(r'^[a-zA-Z0-9_-]{25,55}$', url_or_id) and not url_or_id.startswith("gs://"):
+        return url_or_id
+    return None
+
+
+def resolve_and_ingest_video(video_path: str, bucket_name: str = GCS_BUCKET) -> Dict[str, Any]:
+    """Resolves a video_path (GCS URI, Google Drive URL/ID, or local path) into a streamable GCS URI."""
+    if not video_path:
+        return {"gcs_uri": "", "display_name": "", "source_type": "empty"}
+
+    drive_id = extract_drive_id(video_path)
+    if not drive_id:
+        clean_name = os.path.basename(video_path.split("?")[0]) if video_path else "sample_ea.mp4"
+        return {
+            "gcs_uri": video_path,
+            "display_name": clean_name,
+            "source_type": "gcs" if video_path.startswith("gs://") else "local"
+        }
+
+    # Google Drive Ingest Pipeline
+    dest_blob_name = f"drive_ingest/{drive_id}.mp4"
+    gcs_target_uri = f"gs://{bucket_name}/{dest_blob_name}"
+
+    try:
+        storage_client = storage.Client(project=PROJECT_ID)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(dest_blob_name)
+
+        if blob.exists():
+            print(f"[Drive Ingest] Drive file {drive_id} already cached at {gcs_target_uri}")
+            return {
+                "gcs_uri": gcs_target_uri,
+                "display_name": f"drive_{drive_id[:8]}.mp4",
+                "source_type": "google_drive",
+                "drive_id": drive_id,
+                "cached": True
+            }
+
+        token = get_auth_token()
+        display_name = f"drive_{drive_id[:8]}.mp4"
+
+        # Try fetching file metadata from Drive API
+        if token:
+            try:
+                meta_url = f"https://www.googleapis.com/drive/v3/files/{drive_id}?fields=id,name,size,mimeType"
+                req_meta = urllib.request.Request(meta_url, headers={"Authorization": f"Bearer {token}"})
+                with urllib.request.urlopen(req_meta, timeout=5) as resp:
+                    meta = json.loads(resp.read().decode())
+                    if meta.get("name"):
+                        display_name = meta["name"]
+            except Exception as e:
+                print(f"[Drive Ingest] Metadata fetch notice: {e}")
+
+        # Stream download file from Drive API or usercontent fallback
+        download_attempts = [
+            (f"https://www.googleapis.com/drive/v3/files/{drive_id}?alt=media", True),
+            (f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t", False),
+            (f"https://drive.google.com/uc?export=download&id={drive_id}", False)
+        ]
+
+        stream_success = False
+        for dl_url, use_auth in download_attempts:
+            try:
+                req_dl = urllib.request.Request(dl_url, headers={"User-Agent": "EA-Skate-Ingest/1.0"})
+                if use_auth and token:
+                    req_dl.add_header("Authorization", f"Bearer {token}")
+
+                with urllib.request.urlopen(req_dl, timeout=90) as drive_stream:
+                    with blob.open("wb") as gcs_file:
+                        while True:
+                            chunk = drive_stream.read(1024 * 1024 * 4)  # 4MB chunks
+                            if not chunk:
+                                break
+                            gcs_file.write(chunk)
+                stream_success = True
+                print(f"[Drive Ingest] Successfully ingested Drive file {drive_id} -> {gcs_target_uri}")
+                break
+            except Exception as err:
+                print(f"[Drive Ingest] Attempt failed ({dl_url}): {err}")
+                continue
+
+        if not stream_success:
+            return {
+                "gcs_uri": video_path,
+                "display_name": display_name,
+                "source_type": "google_drive",
+                "drive_id": drive_id,
+                "error": "Could not access Drive file. Ensure file is shared with link access or project Service Account."
+            }
+
+        return {
+            "gcs_uri": gcs_target_uri,
+            "display_name": display_name,
+            "source_type": "google_drive",
+            "drive_id": drive_id,
+            "cached": False
+        }
+
+    except Exception as exc:
+        print(f"[Drive Ingest] Error resolving Drive file: {exc}")
+        return {
+            "gcs_uri": video_path,
+            "display_name": f"drive_{drive_id[:8]}.mp4",
+            "source_type": "google_drive",
+            "error": str(exc)
+        }
 
 
 def evaluate_motion_candidates_with_gemini(candidates: List[Dict[str, Any]], query: str = None) -> List[Dict[str, Any]]:
@@ -274,7 +400,15 @@ def get_reviewer_html(session_id: Optional[str] = None) -> str:
             active_data = SESSION_RESULTS_STORE.get(session_id) if session_id else LATEST_ANALYSIS_DATA
             if active_data and active_data.get("defects"):
                 injected_json = json.dumps(active_data["defects"])
-                content = content.replace("/* __INJECTED_DEFECTS_PLACEHOLDER__ */", f"const SERVER_INJECTED_DEFECTS = {injected_json};")
+                display_name = active_data.get("display_name", "sample_ea.mp4")
+                video_path = active_data.get("video_path", "")
+                source_desc = "Google Drive Ingest" if "drive" in active_data.get("source_type", "") else video_path
+                injected_script = (
+                    f"const SERVER_INJECTED_DEFECTS = {injected_json};\n"
+                    f"  const SERVER_INJECTED_FILENAME = {json.dumps(display_name)};\n"
+                    f"  const SERVER_INJECTED_SOURCE_DESC = {json.dumps(source_desc)};"
+                )
+                content = content.replace("/* __INJECTED_DEFECTS_PLACEHOLDER__ */", injected_script)
             return content
     return "<h1>EA Skate Defect Reviewer Template Not Found</h1>"
 
@@ -552,11 +686,11 @@ async def handle_mcp(request: Request) -> Response:
                     },
                     {
                         "name": "analyze_playtest_stream",
-                        "description": "Runs EA Frostbite zero-transcode stream-copy chunking (-c copy in ~0.2s) and Vertex AI Gemini 4 Argon direct GCS analysis at 6.0 FPS with Frostbite physics defect schema. Trigger with 'Run Frostbite stream analysis on gs://...', 'Analyze playtest stream on gs://...', or 'Run EA Skate stream analysis on gs://...'. Automatically opens the interactive QA Defect Reviewer in the side panel.",
+                        "description": "Runs EA Frostbite zero-transcode stream-copy chunking (-c copy in ~0.2s) and Vertex AI Gemini 4 Argon direct analysis at 6.0 FPS with Frostbite physics defect schema. Accepts Google Drive links (https://drive.google.com/file/d/...), Drive File IDs, or GCS URIs (gs://...). Trigger with 'Run Frostbite stream analysis on <drive_or_gcs_url>', 'Analyze playtest video <drive_url>', or 'Analyze playtest stream on <url>'. Automatically opens the interactive QA Defect Reviewer in the side panel.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "video_path": {"type": "string", "description": "GCS URI (gs://...) or local video path to analyze"},
+                                "video_path": {"type": "string", "description": "Google Drive URL (https://drive.google.com/file/d/...), Drive File ID, or GCS URI (gs://...) to analyze"},
                                 "session_id": {"type": "string", "description": "Session ID identifier"}
                             },
                             "required": ["video_path"]
@@ -784,11 +918,18 @@ async def handle_mcp(request: Request) -> Response:
             })
 
         elif tool_name == "analyze_playtest_stream":
-            video_path = args.get("video_path", "")
+            raw_video_path = args.get("video_path", "")
             session_id = args.get("session_id", "skate_playtest_auto")
+
+            # Resolve Google Drive links/IDs or GCS URIs
+            resolved = resolve_and_ingest_video(raw_video_path)
+            target_video_uri = resolved.get("gcs_uri", raw_video_path)
+            display_name = resolved.get("display_name", raw_video_path)
+            source_type = resolved.get("source_type", "gcs")
+
             analyzer = GeminiPlaytestAnalyzer(project=PROJECT_ID, location=LOCATION, model_name=MODEL_ID)
             res = analyzer.analyze_window(
-                gcs_video_uri=video_path,
+                gcs_video_uri=target_video_uri,
                 session_id=session_id,
                 start_offset_sec=0.0,
                 end_offset_sec=60.0
@@ -800,12 +941,16 @@ async def handle_mcp(request: Request) -> Response:
             # Store in session registry
             payload = {
                 "session_id": session_id,
-                "video_path": video_path,
+                "video_path": target_video_uri,
+                "display_name": display_name,
+                "source_type": source_type,
                 "total_defects": len(raw),
                 "defects": raw
             }
             SESSION_RESULTS_STORE[session_id] = payload
             LATEST_ANALYSIS_DATA.update(payload)
+
+            source_label = f"Google Drive file `{display_name}`" if source_type == "google_drive" else f"`{raw_video_path}`"
 
             return JSONResponse({
                 "jsonrpc": "2.0",
@@ -816,7 +961,7 @@ async def handle_mcp(request: Request) -> Response:
                             "type": "text",
                             "text": (
                                 f"⚡ **Frostbite Zero-Transcode Stream Analysis Complete**\n"
-                                f"Analyzed `{video_path}` at 6.0 FPS native 1080p using `{MODEL_ID}`.\n"
+                                f"Analyzed {source_label} at 6.0 FPS native 1080p using `{MODEL_ID}`.\n"
                                 f"- **Total Defects Found**: {len(raw)}\n\n"
                                 f"Interactive QA Defect Reviewer loaded in the side panel with all {len(raw)} defect pins pinned to the timeline."
                             )
@@ -832,7 +977,7 @@ async def handle_mcp(request: Request) -> Response:
                             "resourceUri": REVIEWER_RESOURCE_URI,
                         },
                     },
-                }
+                },
             })
 
         elif tool_name == "analyze_motion_anomaly_frames":

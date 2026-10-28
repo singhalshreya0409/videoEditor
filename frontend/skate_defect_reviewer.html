@@ -1409,7 +1409,9 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
     if (videoUrlParam) {
       video.src = videoUrlParam;
     } else if (typeof SERVER_INJECTED_DEFECTS !== "undefined" && SERVER_INJECTED_DEFECTS.length > 0) {
-      videoSourceLabel.innerHTML = 'Active: <b style="color: var(--ea-red);">sample_ea.mp4</b> (gs://ea-skate-playtests-15785338844)';
+      const activeName = (typeof SERVER_INJECTED_FILENAME !== "undefined" && SERVER_INJECTED_FILENAME) ? SERVER_INJECTED_FILENAME : "sample_ea.mp4";
+      const activeDesc = (typeof SERVER_INJECTED_SOURCE_DESC !== "undefined" && SERVER_INJECTED_SOURCE_DESC) ? SERVER_INJECTED_SOURCE_DESC : "gs://ea-skate-playtests-15785338844";
+      videoSourceLabel.innerHTML = `Active: <b style="color: var(--ea-red);">${activeName}</b> (${activeDesc})`;
       video.src = "/api/video_stream";
     }
 
