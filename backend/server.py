@@ -485,10 +485,12 @@ def get_snippet(path: Optional[str] = None, start_sec: float = 0.0, duration: fl
 
 
 @app.get("/api/video_stream")
-def video_stream(path: str = "gs://ea-skate-playtests-15785338844/sample_ea.mp4") -> Response:
+def video_stream(path: Optional[str] = None) -> Response:
     """Streams video directly from Cloud Storage for in-browser playback."""
     try:
         from google.cloud import storage
+        if not path:
+            path = f"gs://{GCS_BUCKET}/sample_ea.mp4"
         if path.startswith("gs://"):
             bucket_name, blob_name = path[5:].split("/", 1)
         else:
@@ -948,7 +950,7 @@ async def handle_mcp(request: Request) -> Response:
 
             # If Drive download was blocked or failed, fall back to sample_ea.mp4
             if error_note and not target_video_uri.startswith("gs://"):
-                target_video_uri = "gs://ea-skate-playtests-15785338844/sample_ea.mp4"
+                target_video_uri = f"gs://{GCS_BUCKET}/sample_ea.mp4"
                 source_label = f"Google Drive (`{display_name}` [Auth fallback to sample_ea.mp4])"
             else:
                 source_label = f"Google Drive file `{display_name}`" if source_type == "google_drive" else f"`{raw_video_path}`"
