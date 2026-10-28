@@ -23,10 +23,16 @@ from google.cloud import storage
 from gemini_analyzer import GeminiPlaytestAnalyzer
 from ingest_chunker import PlaytestStreamChunker
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "brand-sentinel-demo")
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "test-project-ea-509519")
 LOCATION = os.environ.get("VERTEX_LOCATION", "global")
 MODEL_ID = os.environ.get("VERTEX_MODEL", "gemini-4-argon")
-GCS_BUCKET = os.environ.get("GCS_BUCKET", f"ea-skate-playtests-15785338844")
+
+if PROJECT_ID == "test-project-ea-509519":
+    DEFAULT_BUCKET = "ea-skate-playtests-422171985309"
+else:
+    DEFAULT_BUCKET = "ea-skate-playtests-15785338844"
+
+GCS_BUCKET = os.environ.get("GCS_BUCKET", DEFAULT_BUCKET)
 
 # In-memory store for session defect analysis results
 SESSION_RESULTS_STORE: Dict[str, Dict[str, Any]] = {}
@@ -34,7 +40,7 @@ SESSION_RESULTS_STORE: Dict[str, Dict[str, Any]] = {}
 # Pre-seeded / Latest Analysis Data for sample_ea.mp4
 LATEST_ANALYSIS_DATA: Dict[str, Any] = {
     "session_id": "skate_playtest_auto",
-    "video_path": "gs://ea-skate-playtests-15785338844/sample_ea.mp4",
+    "video_path": f"gs://{GCS_BUCKET}/sample_ea.mp4",
     "total_defects": 5,
     "defects": [
         {
@@ -423,11 +429,14 @@ def get_reviewer_html(session_id: Optional[str] = None) -> str:
 
 
 @app.get("/api/snippet")
-def get_snippet(path: str = "gs://ea-skate-playtests-15785338844/sample_ea.mp4", start_sec: float = 0.0, duration: float = 10.0) -> Response:
+def get_snippet(path: Optional[str] = None, start_sec: float = 0.0, duration: float = 10.0) -> Response:
     """Extracts an exact 10s MP4 snippet around a defect using FFmpeg stream-copy in ~0.15s."""
     import subprocess
     import tempfile
     from google.cloud import storage
+
+    if not path:
+        path = f"gs://{GCS_BUCKET}/sample_ea.mp4"
 
     try:
         local_src = "/tmp/source_playtest.mp4"
