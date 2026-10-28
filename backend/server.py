@@ -16,7 +16,7 @@ import urllib.error
 import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, Request, Response, BackgroundTasks
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import storage
@@ -637,7 +637,7 @@ def get_playtest_results(session_id: str) -> Response:
 
 @app.get("/api/sync_folder")
 @app.post("/api/sync_folder")
-def api_sync_folder(folder_id: Optional[str] = None, background_tasks: Optional[BackgroundTasks] = None) -> Response:
+def api_sync_folder(folder_id: Optional[str] = None) -> Response:
     """Triggers background synchronization of videos from a Google Drive folder into GCS."""
     target_id = folder_id or DEFAULT_INGEST_FOLDER_ID
     res = sync_drive_folder(target_id)
