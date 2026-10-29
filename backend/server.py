@@ -534,7 +534,7 @@ def get_reviewer_html(session_id: Optional[str] = None) -> str:
             content = f.read()
             # If we have analyzed defects, inject them
             active_data = SESSION_RESULTS_STORE.get(session_id) if session_id else LATEST_ANALYSIS_DATA
-            if active_data and active_data.get("defects"):
+            if active_data is not None and "defects" in active_data:
                 injected_json = json.dumps(active_data["defects"])
                 display_name = active_data.get("display_name", "sample_ea.mp4")
                 video_path = active_data.get("video_path", "")
