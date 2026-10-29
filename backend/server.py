@@ -134,6 +134,27 @@ def get_auth_token() -> str:
         return ""
 
 
+DEFAULT_INGEST_FOLDER_ID = os.environ.get("DEFAULT_DRIVE_FOLDER_ID", "1k1vdra7b2M0tYLIBM6yFNPfJa9gsS2gH")
+
+
+def extract_drive_folder_id(url_or_id: str) -> Optional[str]:
+    """Extracts a Google Drive folder ID from various folder URL formats."""
+    if not url_or_id or not isinstance(url_or_id, str):
+        return None
+    url_or_id = url_or_id.strip()
+    patterns = [
+        r"drive\.google\.com/drive/(?:u/\d+/)?folders/([a-zA-Z0-9_-]+)",
+        r"drive\.google\.com/.*[?&]folder_id=([a-zA-Z0-9_-]+)",
+    ]
+    for p in patterns:
+        m = re.search(p, url_or_id)
+        if m:
+            return m.group(1)
+    if "folder" in url_or_id.lower() and re.match(r"^[a-zA-Z0-9_-]{25,55}$", url_or_id):
+        return url_or_id
+    return None
+
+
 def extract_drive_id(url_or_id: str) -> Optional[str]:
     """Extracts a Google Drive file ID from various Drive URL formats or returns the ID if already clean."""
     if not url_or_id or not isinstance(url_or_id, str):
@@ -155,19 +176,77 @@ def extract_drive_id(url_or_id: str) -> Optional[str]:
     return None
 
 
+def list_drive_folder_videos(folder_id: str = DEFAULT_INGEST_FOLDER_ID, token: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Queries the Google Drive API v3 to list video files in an ingest folder, ordered by modifiedTime descending."""
+    if not token:
+        token = get_auth_token()
+
+    params = urllib.parse.urlencode({
+        "q": f"'{folder_id}' in parents and trashed = false",
+        "fields": "files(id,name,size,mimeType,modifiedTime)",
+        "orderBy": "modifiedTime desc",
+        "supportsAllDrives": "true",
+        "includeItemsFromAllDrives": "true",
+        "pageSize": "50"
+    })
+    api_url = f"https://www.googleapis.com/drive/v3/files?{params}"
+
+    headers = {"User-Agent": "EA-Skate-Ingest/1.0"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+            files = data.get("files", [])
+            video_files = [
+                f for f in files
+                if f.get("mimeType", "").startswith("video/") or any(
+                    f.get("name", "").lower().endswith(ext)
+                    for ext in (".mp4", ".mov", ".mkv", ".webm", ".avi")
+                )
+            ]
+            return video_files
+    except Exception as e:
+        print(f"[Drive Folder List] Notice: folder query for {folder_id}: {e}")
+        return []
+
+
 def resolve_and_ingest_video(video_path: str, bucket_name: str = GCS_BUCKET) -> Dict[str, Any]:
-    """Resolves a video_path (GCS URI, Google Drive URL/ID, or local path) into a streamable GCS URI."""
+    """Resolves a video_path (GCS URI, Google Drive URL/ID, natural language file name, or 'latest') into a streamable GCS URI."""
     if not video_path:
-        return {"gcs_uri": "", "display_name": "", "source_type": "empty"}
+        video_path = "latest"
 
     drive_id = extract_drive_id(video_path)
-    if not drive_id:
-        clean_name = os.path.basename(video_path.split("?")[0]) if video_path else "sample_ea.mp4"
-        return {
-            "gcs_uri": video_path,
-            "display_name": clean_name,
-            "source_type": "gcs" if video_path.startswith("gs://") else "local"
-        }
+
+    # Natural language or file name resolution against Skate-QA-Ingest Drive folder
+    if not drive_id and not video_path.startswith("gs://"):
+        v_clean = video_path.strip().lower()
+        folder_vids = list_drive_folder_videos(DEFAULT_INGEST_FOLDER_ID)
+        matched_vid = None
+
+        if v_clean in ["latest", "recent", "newest", "last", "latest video", "folder", "drive", ""]:
+            if folder_vids:
+                matched_vid = folder_vids[0]
+        else:
+            for fv in folder_vids:
+                fname = fv.get("name", "").lower()
+                # Exact match or substring match (e.g. "skate 2min" matches "skate 2min.mp4")
+                if v_clean == fname or v_clean in fname or os.path.splitext(v_clean)[0] in os.path.splitext(fname)[0]:
+                    matched_vid = fv
+                    break
+
+        if matched_vid:
+            drive_id = matched_vid.get("id")
+            display_name = matched_vid.get("name", f"drive_{drive_id}.mp4")
+        else:
+            clean_name = os.path.basename(video_path.split("?")[0]) if video_path else "sample_ea.mp4"
+            return {
+                "gcs_uri": video_path,
+                "display_name": clean_name,
+                "source_type": "gcs" if video_path.startswith("gs://") else "local"
+            }
 
     # Google Drive Ingest Pipeline
     dest_blob_name = f"drive_ingest/{drive_id}.mp4"
@@ -177,16 +256,6 @@ def resolve_and_ingest_video(video_path: str, bucket_name: str = GCS_BUCKET) -> 
         storage_client = storage.Client(project=PROJECT_ID)
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(dest_blob_name)
-
-        if blob.exists():
-            print(f"[Drive Ingest] Drive file {drive_id} already cached at {gcs_target_uri}")
-            return {
-                "gcs_uri": gcs_target_uri,
-                "display_name": f"drive_{drive_id[:8]}.mp4",
-                "source_type": "google_drive",
-                "drive_id": drive_id,
-                "cached": True
-            }
 
         token = get_auth_token()
         display_name = f"drive_{drive_id[:8]}.mp4"
@@ -203,7 +272,17 @@ def resolve_and_ingest_video(video_path: str, bucket_name: str = GCS_BUCKET) -> 
             except Exception as e:
                 print(f"[Drive Ingest] Metadata fetch notice: {e}")
 
-        # Stream download file from Drive API or usercontent fallback
+        if blob.exists():
+            print(f"[Drive Ingest] Drive file {drive_id} already cached at {gcs_target_uri}")
+            return {
+                "gcs_uri": gcs_target_uri,
+                "display_name": display_name,
+                "source_type": "google_drive",
+                "drive_id": drive_id,
+                "cached": True
+            }
+
+        # Stream download file from Drive API or usercontent fallback (4MB streaming chunk copy)
         download_attempts = [
             (f"https://www.googleapis.com/drive/v3/files/{drive_id}?alt=media", True),
             (f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&confirm=t", False),
@@ -217,11 +296,10 @@ def resolve_and_ingest_video(video_path: str, bucket_name: str = GCS_BUCKET) -> 
                 if use_auth and token:
                     req_dl.add_header("Authorization", f"Bearer {token}")
 
-                with urllib.request.urlopen(req_dl, timeout=90) as drive_stream:
+                with urllib.request.urlopen(req_dl, timeout=300) as drive_stream:
                     first_chunk = drive_stream.read(1024 * 1024 * 4)  # 4MB first chunk
                     if not first_chunk:
                         continue
-                    # Check if response is an HTML login/SSO redirect page instead of MP4 video
                     if b"<!doctype" in first_chunk[:200].lower() or b"<html" in first_chunk[:200].lower():
                         print(f"[Drive Ingest] Download attempt returned HTML sign-in page instead of MP4 binary.")
                         continue
@@ -267,58 +345,7 @@ def resolve_and_ingest_video(video_path: str, bucket_name: str = GCS_BUCKET) -> 
         }
 
 
-DEFAULT_INGEST_FOLDER_ID = os.environ.get("DEFAULT_DRIVE_FOLDER_ID", "1k1vdra7b2M0tYLIBM6yFNPfJa9gsS2gH")
-
-
-def extract_drive_folder_id(url_or_id: str) -> Optional[str]:
-    """Extracts a Google Drive folder ID from various folder URL formats."""
-    if not url_or_id or not isinstance(url_or_id, str):
-        return None
-    url_or_id = url_or_id.strip()
-    patterns = [
-        r"drive\.google\.com/drive/(?:u/\d+/)?folders/([a-zA-Z0-9_-]+)",
-        r"drive\.google\.com/.*[?&]folder_id=([a-zA-Z0-9_-]+)",
-    ]
-    for p in patterns:
-        m = re.search(p, url_or_id)
-        if m:
-            return m.group(1)
-    if "folder" in url_or_id.lower() and re.match(r"^[a-zA-Z0-9_-]{25,55}$", url_or_id):
-        return url_or_id
-    return None
-
-
-def list_drive_folder_videos(folder_id: str, token: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Queries the Google Drive API v3 to list video files in an ingest folder."""
-    if not token:
-        token = get_auth_token()
-
-    query = urllib.parse.quote(f"'{folder_id}' in parents and trashed = false")
-    api_url = f"https://www.googleapis.com/drive/v3/files?q={query}&fields=files(id,name,size,mimeType,modifiedTime)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=50"
-
-    headers = {"User-Agent": "EA-Skate-Ingest/1.0"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    try:
-        req = urllib.request.Request(api_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-            files = data.get("files", [])
-            video_files = [
-                f for f in files
-                if f.get("mimeType", "").startswith("video/") or any(
-                    f.get("name", "").lower().endswith(ext)
-                    for ext in (".mp4", ".mov", ".mkv", ".webm", ".avi")
-                )
-            ]
-            return video_files
-    except Exception as e:
-        print(f"[Drive Folder List] Notice: folder query for {folder_id}: {e}")
-        return []
-
-
-def sync_drive_folder(folder_id: str = DEFAULT_INGEST_FOLDER_ID, bucket_name: str = GCS_BUCKET, max_files: int = 10) -> Dict[str, Any]:
+def sync_drive_folder(folder_id: str = DEFAULT_INGEST_FOLDER_ID, bucket_name: str = GCS_BUCKET, max_files: int = 15) -> Dict[str, Any]:
     """Pre-ingests video files from a Google Drive folder into GCS in the background."""
     if not folder_id:
         folder_id = DEFAULT_INGEST_FOLDER_ID
@@ -825,14 +852,13 @@ async def handle_mcp(request: Request) -> Response:
                     },
                     {
                         "name": "analyze_playtest_stream",
-                        "description": "Runs EA Frostbite zero-transcode stream-copy chunking (-c copy in ~0.2s) and Vertex AI Gemini 4 Argon direct analysis at 6.0 FPS with Frostbite physics defect schema. Accepts Google Drive links (https://drive.google.com/file/d/...), Drive File IDs, or GCS URIs (gs://...). Trigger with 'Run Frostbite stream analysis on <drive_or_gcs_url>', 'Analyze playtest video <drive_url>', or 'Analyze playtest stream on <url>'. Automatically opens the interactive QA Defect Reviewer in the side panel.",
+                        "description": "Runs EA Frostbite zero-transcode stream analysis at 6.0 FPS with Vertex AI Gemini 4 Argon. Accepts video file names (e.g. 'skate 2min.mp4', 'sample_ea.mp4'), 'latest' (to analyze newest video from Skate Drive folder), Google Drive links (https://drive.google.com/file/d/...), Drive File IDs, or GCS URIs (gs://...). Trigger with 'Run Frostbite stream analysis on skate 2min.mp4', 'Analyze the latest video in Drive folder', or 'Analyze playtest stream on <url>'. Automatically opens the interactive QA Defect Reviewer in the side panel.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "video_path": {"type": "string", "description": "Google Drive URL (https://drive.google.com/file/d/...), Drive File ID, or GCS URI (gs://...) to analyze"},
-                                "session_id": {"type": "string", "description": "Session ID identifier"}
-                            },
-                            "required": ["video_path"]
+                                "video_path": {"type": "string", "description": "Video file name (e.g. 'skate 2min.mp4'), 'latest', Google Drive URL, Drive File ID, or GCS URI to analyze. Defaults to latest video in the Skate QA Drive folder if omitted."},
+                                "session_id": {"type": "string", "description": "Optional session identifier"}
+                            }
                         },
                         "annotations": {
                             "readOnlyHint": True,
@@ -918,6 +944,24 @@ async def handle_mcp(request: Request) -> Response:
                             "type": "object",
                             "properties": {
                                 "folder_url_or_id": {"type": "string", "description": "Google Drive folder URL (https://drive.google.com/drive/folders/...) or folder ID. Defaults to Skate-QA-Ingest."}
+                            }
+                        },
+                        "annotations": {
+                            "readOnlyHint": True,
+                        },
+                        "_meta": {
+                            "ui": {
+                                "visibility": ["model", "app"],
+                            },
+                        },
+                    },
+                    {
+                        "name": "list_drive_playtest_videos",
+                        "description": "Lists all playtest videos available in the Skate-QA-Ingest Google Drive folder, showing file names, sizes, modified dates, and whether they are ready and cached in GCS. Trigger with 'List playtest videos', 'What videos are in the drive folder?', or 'Show available Skate playtest videos'.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "folder_id": {"type": "string", "description": "Optional Google Drive folder ID. Defaults to Skate-QA-Ingest."}
                             }
                         },
                         "annotations": {
@@ -1107,6 +1151,58 @@ async def handle_mcp(request: Request) -> Response:
                         }
                     ],
                     "sync_details": res
+                }
+            })
+
+        elif tool_name == "list_drive_playtest_videos":
+            folder_id = args.get("folder_id") or DEFAULT_INGEST_FOLDER_ID
+            videos = list_drive_folder_videos(folder_id)
+            storage_client = storage.Client(project=PROJECT_ID)
+            bucket = storage_client.bucket(GCS_BUCKET)
+
+            items = []
+            for v in videos:
+                vid_id = v.get("id")
+                vname = v.get("name", f"drive_{vid_id}.mp4")
+                size_bytes = int(v.get("size") or 0)
+                size_mb = f"{size_bytes / (1024 * 1024):.1f} MB" if size_bytes else "Unknown size"
+                mod_time = v.get("modifiedTime", "Recent")[:16].replace("T", " ")
+                blob_path = f"drive_ingest/{vid_id}.mp4"
+                is_cached = bucket.blob(blob_path).exists()
+                items.append({
+                    "name": vname,
+                    "id": vid_id,
+                    "size": size_mb,
+                    "modified": mod_time,
+                    "status": "Ready (Cached in GCS)" if is_cached else "Pending Ingestion",
+                    "gcs_uri": f"gs://{GCS_BUCKET}/{blob_path}" if is_cached else None
+                })
+
+            summary_lines = [f"📁 **Skate Playtest Videos in Google Drive** (Folder: `{folder_id}`)\n"]
+            if not items:
+                summary_lines.append("No video files found in the folder. Please ensure files are uploaded and shared with 422171985309-compute@developer.gserviceaccount.com.")
+            else:
+                summary_lines.append(f"Found {len(items)} playtest video(s) in Drive ready for Frostbite stream analysis:\n")
+                for i, it in enumerate(items, 1):
+                    badge = "⚡ READY" if "Ready" in it["status"] else "⏳ SYNCING"
+                    summary_lines.append(f"{i}. **{it['name']}** ({it['size']}) — `{badge}`")
+                    summary_lines.append(f"   - Last Modified: `{it['modified']}`")
+                    summary_lines.append(f"   - Drive ID: `{it['id']}`\n")
+                first_name = items[0]['name']
+                summary_lines.append(f"\n💡 *You can analyze any of these by saying:* `Run Frostbite stream analysis on {first_name}` *or* `Analyze the latest video in the Drive folder`.")
+            summary_text = "\n".join(summary_lines)
+
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": summary_text
+                        }
+                    ],
+                    "videos": items
                 }
             })
 

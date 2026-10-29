@@ -831,7 +831,7 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
       }
     ];
 
-    let defects = (typeof SERVER_INJECTED_DEFECTS !== "undefined" && Array.isArray(SERVER_INJECTED_DEFECTS) && SERVER_INJECTED_DEFECTS.length > 0)
+    let defects = (typeof SERVER_INJECTED_DEFECTS !== "undefined" && Array.isArray(SERVER_INJECTED_DEFECTS))
       ? SERVER_INJECTED_DEFECTS.map((item, idx) => {
           function parseTs(ts) {
             if (typeof ts === "number") return ts;
@@ -964,6 +964,7 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
 
       if (defects.length === 0) {
         hudDefectIndicator.textContent = "NO DEFECTS REPORTED";
+        pillsContainer.innerHTML = `<div style="display: flex; align-items: center; gap: 8px; color: #4ade80; font-size: 12px; font-weight: 600; padding: 8px 16px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 6px;">✅ Frostbite Stream Analysis Clean: 0 Physics Defects Detected</div>`;
         return;
       }
 
@@ -1005,7 +1006,23 @@ Skateboard truck hangar collision hull clips below the curb top polygon during F
     }
 
     window.selectDefect = function(index) {
-      if (defects.length === 0 || !defects[index]) return;
+      if (defects.length === 0) {
+        document.getElementById("cardDefectId").textContent = "FB-SKATE-CLEAN";
+        document.getElementById("cardTimestamp").textContent = "TIMESTAMP: 00:00.00";
+        document.getElementById("cardDefectTitle").textContent = "All Systems Operational";
+        const sevBadge = document.getElementById("cardSeverityBadge");
+        sevBadge.textContent = "Status: Nominal";
+        sevBadge.className = "badge badge-sev-low";
+        document.getElementById("cardSubsystemBadge").textContent = "Subsystem: Frostbite Rigid Body & IK";
+        document.getElementById("cardSubsystem").textContent = "Frostbite Rigid Body & Mesh Collider";
+        document.getElementById("cardVector").textContent = "Ground Contact: Continuous | Micro-penetrations: 0.00m";
+        document.getElementById("cardReproRate").textContent = "0% (Glitch-Free Playtest)";
+        document.getElementById("cardDescription").textContent = "Frostbite 6.0 FPS zero-transcode stream analysis completed with Gemini 4 Argon. Zero ragdoll inversions, geometry clipping, or solver explosions detected in this playtest segment.";
+        document.getElementById("cardRepro").textContent = "No reproduction steps required. Session verified glitch-free.";
+        hudDefectIndicator.textContent = "ALL SYSTEMS NOMINAL (0 DEFECTS)";
+        return;
+      }
+      if (!defects[index]) return;
       currentSelectedDefect = index;
       const def = defects[index];
 
