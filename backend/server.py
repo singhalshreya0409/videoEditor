@@ -34,14 +34,17 @@ else:
     DEFAULT_BUCKET = "ea-skate-playtests-15785338844"
 
 GCS_BUCKET = os.environ.get("GCS_BUCKET", DEFAULT_BUCKET)
+DEFAULT_PLAYTEST_URI = f"gs://{GCS_BUCKET}/drive_ingest/1OH1YX6pv3P5EUBTty-wsgAMwNfR7gkYg.mp4"
+DEFAULT_PLAYTEST_NAME = "easakte4min.mp4"
 
 # In-memory store for session defect analysis results
 SESSION_RESULTS_STORE: Dict[str, Dict[str, Any]] = {}
 
-# Pre-seeded / Latest Analysis Data for sample_ea.mp4
+# Pre-seeded / Latest Analysis Data for easakte4min.mp4
 LATEST_ANALYSIS_DATA: Dict[str, Any] = {
     "session_id": "skate_playtest_auto",
-    "video_path": f"gs://{GCS_BUCKET}/sample_ea.mp4",
+    "video_path": DEFAULT_PLAYTEST_URI,
+    "display_name": DEFAULT_PLAYTEST_NAME,
     "total_defects": 5,
     "defects": [
         {
@@ -661,15 +664,15 @@ def create_playtest_clip(
     safe_start = max(0.0, target_sec - (duration / 2.0))
 
     if not video_path or video_path == "latest":
-        video_path = LATEST_ANALYSIS_DATA.get("video_path") or f"gs://{GCS_BUCKET}/sample_ea.mp4"
+        video_path = LATEST_ANALYSIS_DATA.get("video_path") or DEFAULT_PLAYTEST_URI
     elif not video_path.startswith("gs://"):
         resolved = resolve_and_ingest_video(video_path)
-        video_path = resolved.get("gcs_uri", f"gs://{GCS_BUCKET}/sample_ea.mp4")
+        video_path = resolved.get("gcs_uri") or DEFAULT_PLAYTEST_URI
 
     local_src = "/tmp/source_playtest.mp4"
     if not os.path.exists(local_src):
         bucket_name = GCS_BUCKET
-        blob_name = "sample_ea.mp4"
+        blob_name = "drive_ingest/1OH1YX6pv3P5EUBTty-wsgAMwNfR7gkYg.mp4"
         if video_path.startswith("gs://"):
             bucket_name, blob_name = video_path[5:].split("/", 1)
         client = storage.Client(project=PROJECT_ID)
@@ -1244,8 +1247,8 @@ async def handle_mcp(request: Request) -> Response:
             session_id = args.get("session_id", "QA-2026-OCT")
             raw_ts = args.get("timestamp") or args.get("time") or args.get("timestamp_sec") or args.get("timecode")
             active_data = SESSION_RESULTS_STORE.get(session_id) or LATEST_ANALYSIS_DATA
-            video_uri = active_data.get("video_path") or f"gs://{GCS_BUCKET}/sample_ea.mp4"
-            disp_name = active_data.get("display_name", "Playtest Video")
+            video_uri = active_data.get("video_path") or DEFAULT_PLAYTEST_URI
+            disp_name = active_data.get("display_name", DEFAULT_PLAYTEST_NAME)
 
             clip_ts = raw_ts if raw_ts else "00:15"
             clip_md = ""
