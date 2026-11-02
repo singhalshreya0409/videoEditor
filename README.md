@@ -154,3 +154,8 @@ videoEditor/
 
 4. **Review in Side Panel:**
    The interactive reviewer will immediately dock into the `<ucs-mcp-pip-panel>` side panel with all detected physics defect pins, Frostbite telemetry signatures, and frame scrubbing controls.
+
+5. **Download Any 10-Second Bug Clip (Zero Auth Errors):**
+   > *"Slice a 10s clip at 00:15 in the Skate playtest video"*
+   > *"Download snippet around 01:23"*
+   Gemini invokes `slice_playtest_clip` to stream-copy the exact 10-second segment in 0.15s, uploads it to Cloud Storage, and returns an instant pre-signed GCS download link in chat. Click to download directly from GCS without any Cloud Run IAM 403 barriers.

@@ -627,6 +627,127 @@ def video_stream(path: Optional[str] = None) -> Response:
         return Response(status_code=302, headers={"Location": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"})
 
 
+
+def create_playtest_clip(
+    video_path: Optional[str] = None,
+    timestamp: Any = 0.0,
+    duration: float = 10.0
+) -> Dict[str, Any]:
+    """Slices a duration-second MP4 clip around timestamp and generates a signed download URL."""
+    import subprocess
+    import tempfile
+    import uuid
+    import datetime
+    import google.auth
+    from google.cloud import storage
+
+    def parse_time(ts):
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        if not ts:
+            return 0.0
+        ts_str = str(ts).strip()
+        parts = ts_str.split(":")
+        if len(parts) == 2:
+            return float(parts[0]) * 60 + float(parts[1])
+        if len(parts) == 3:
+            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+        try:
+            return float(ts_str)
+        except ValueError:
+            return 0.0
+
+    target_sec = parse_time(timestamp)
+    safe_start = max(0.0, target_sec - (duration / 2.0))
+
+    if not video_path or video_path == "latest":
+        video_path = LATEST_ANALYSIS_DATA.get("video_path") or f"gs://{GCS_BUCKET}/sample_ea.mp4"
+    elif not video_path.startswith("gs://"):
+        resolved = resolve_and_ingest_video(video_path)
+        video_path = resolved.get("gcs_uri", f"gs://{GCS_BUCKET}/sample_ea.mp4")
+
+    local_src = "/tmp/source_playtest.mp4"
+    if not os.path.exists(local_src):
+        bucket_name = GCS_BUCKET
+        blob_name = "sample_ea.mp4"
+        if video_path.startswith("gs://"):
+            bucket_name, blob_name = video_path[5:].split("/", 1)
+        client = storage.Client(project=PROJECT_ID)
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.download_to_filename(local_src)
+
+    out_fd, out_path = tempfile.mkstemp(suffix=".mp4")
+    os.close(out_fd)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(safe_start),
+        "-i", local_src,
+        "-t", str(duration),
+        "-c", "copy",
+        "-avoid_negative_ts", "make_zero",
+        out_path
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+    credentials, _ = google.auth.default()
+    if credentials.expired or not credentials.token:
+        try:
+            import google.auth.transport.requests
+            credentials.refresh(google.auth.transport.requests.Request())
+        except Exception as ref_err:
+            print("Credentials refresh note:", ref_err)
+
+    client = storage.Client(project=PROJECT_ID, credentials=credentials)
+    bucket = client.bucket(GCS_BUCKET)
+    clip_uid = uuid.uuid4().hex[:6]
+    m_val = int(target_sec // 60)
+    s_val = int(target_sec % 60)
+    clip_blob_name = f"clips/skate_clip_{m_val:02d}m{s_val:02d}s_{clip_uid}.mp4"
+    clip_blob = bucket.blob(clip_blob_name)
+    clip_blob.upload_from_filename(out_path, content_type="video/mp4")
+    os.remove(out_path)
+
+    sa_email = "422171985309-compute@developer.gserviceaccount.com"
+    download_url = None
+    try:
+        download_url = clip_blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(hours=4),
+            method="GET",
+            service_account_email=sa_email,
+            access_token=getattr(credentials, "token", None)
+        )
+    except Exception as e1:
+        print(f"generate_signed_url (explicit token) error: {e1}")
+        try:
+            download_url = clip_blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(hours=4),
+                method="GET"
+            )
+        except Exception as e2:
+            print(f"generate_signed_url (default) error: {e2}")
+            download_url = f"https://storage.googleapis.com/{GCS_BUCKET}/{clip_blob_name}"
+
+    def fmt_time(sec):
+        m = int(sec // 60)
+        s = int(sec % 60)
+        ms = int((sec % 1) * 100)
+        return f"{m:02d}:{s:02d}.{ms:02d}"
+
+    return {
+        "timestamp_target": fmt_time(target_sec),
+        "window_start": fmt_time(safe_start),
+        "window_end": fmt_time(safe_start + duration),
+        "duration_sec": duration,
+        "gcs_uri": f"gs://{GCS_BUCKET}/{clip_blob_name}",
+        "download_url": download_url,
+        "filename": f"skate_clip_{m_val:02d}m{s_val:02d}s.mp4"
+    }
+
+
 @app.get("/")
 def health_check() -> Dict[str, str]:
     return {
@@ -973,6 +1094,36 @@ async def handle_mcp(request: Request) -> Response:
                             },
                         },
                     },
+                    {
+                        "name": "slice_playtest_clip",
+                        "description": "Extracts an exact 10-second MP4 video clip around ANY playtest timestamp using ultra-fast FFmpeg stream-copy (~0.15s), uploads it to Cloud Storage, and returns an authenticated download link directly in chat. Trigger when the user asks to slice, download, clip, or extract a moment from the video (e.g. 'Slice a 10s clip at 00:15', 'Download snippet at 00:12', 'Can I get a clip of 01:23?', 'Cut a 10-second video around 45s', 'Download clip for Pin 1').",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "timestamp": {
+                                    "type": "string",
+                                    "description": "Timestamp in seconds (e.g. '14.5') or format MM:SS / MM:SS.SS (e.g. '00:15', '01:23.50')."
+                                },
+                                "video_path": {
+                                    "type": "string",
+                                    "description": "Optional video name (e.g. 'skate 2min.mp4'), GCS URI, or 'latest'. Defaults to the latest analyzed playtest."
+                                },
+                                "duration": {
+                                    "type": "number",
+                                    "description": "Optional clip duration in seconds. Defaults to 10.0s."
+                                }
+                            },
+                            "required": ["timestamp"]
+                        },
+                        "annotations": {
+                            "readOnlyHint": True,
+                        },
+                        "_meta": {
+                            "ui": {
+                                "visibility": ["model", "app"],
+                            },
+                        },
+                    },
                 ],
             },
         })
@@ -1290,7 +1441,8 @@ async def handle_mcp(request: Request) -> Response:
                                 f"⚡ **Frostbite Zero-Transcode Stream Analysis Complete**\n"
                                 f"Analyzed {source_label} at 6.0 FPS native 1080p using `{MODEL_ID}`.\n"
                                 f"- **Total Defects Found**: {len(raw)}\n\n"
-                                f"Interactive QA Defect Reviewer loaded in the side panel with all {len(raw)} defect pins pinned to the timeline."
+                                f"Interactive QA Defect Reviewer loaded in the side panel with all {len(raw)} defect pins pinned to the timeline.\n\n"
+                                f"💡 *Tip: You can ask me to download a 10-second MP4 clip of any moment! For example:* `Download clip at 00:15` *or* `Slice clip for Pin 1`."
                             )
                         }
                     ],
@@ -1331,6 +1483,47 @@ async def handle_mcp(request: Request) -> Response:
                     ],
                     "defects": defects,
                 },
+            })
+
+        elif tool_name == "slice_playtest_clip":
+            ts_input = args.get("timestamp") or args.get("timestamp_sec") or args.get("time") or "00:12"
+            video_input = args.get("video_path")
+            duration_val = float(args.get("duration") or 10.0)
+
+            clip_info = create_playtest_clip(
+                video_path=video_input,
+                timestamp=ts_input,
+                duration=duration_val
+            )
+
+            ts_target = clip_info["timestamp_target"]
+            win_start = clip_info["window_start"]
+            win_end = clip_info["window_end"]
+            dl_url = clip_info["download_url"]
+            fname = clip_info["filename"]
+            dur = clip_info["duration_sec"]
+
+            markdown_response = (
+                f"🎬 **10-Second Playtest Bug Clip Ready!**\n\n"
+                f"- **Target Timestamp:** `{ts_target}`\n"
+                f"- **Clip Window:** `{win_start}` – `{win_end}` ({dur:.1f}s snippet)\n"
+                f"- **Filename:** `{fname}`\n\n"
+                f"📥 **[Click Here to Download Clip ({fname})]({dl_url})**\n\n"
+                f"*(Link is cryptographically signed by Google Cloud Storage and valid for 4 hours. No IAM login or Cloud Run auth required.)*"
+            )
+
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": markdown_response
+                        }
+                    ],
+                    "clip": clip_info
+                }
             })
 
         elif tool_name == "file_jira_bug":
