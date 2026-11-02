@@ -950,10 +950,11 @@ async def handle_mcp(request: Request) -> Response:
                     },
                     {
                         "name": "open_skate_defect_reviewer",
-                        "description": "Opens the interactive EA Skate Frostbite QA Defect Reviewer in the side panel with interactive timeline scrubber, clickable defect pins (00:12 Curb Snapping, 00:20 Ragdoll Inversion, 00:47 Impulse Launch), 0.5x Slow-Mo, and live Frostbite telemetry.",
+                        "description": "Opens the interactive EA Skate Frostbite QA Defect Reviewer in the side panel AND automatically slices/generates an instant signed GCS download link in chat for any requested timestamp or defect moment (e.g. 00:15, 00:12, 00:30). Trigger when the user asks to review, inspect, slice, or download a video segment or defect.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
+                                "timestamp": {"type": "string", "description": "Timestamp in seconds (e.g. '15.0') or MM:SS (e.g. '00:15') to slice into a 10s MP4 download link."},
                                 "session_id": {"type": "string", "description": "Playtest session ID to display, e.g. QA-2026-OCT"}
                             }
                         },
@@ -1241,6 +1242,34 @@ async def handle_mcp(request: Request) -> Response:
 
         elif tool_name == "open_skate_defect_reviewer":
             session_id = args.get("session_id", "QA-2026-OCT")
+            raw_ts = args.get("timestamp") or args.get("time") or args.get("timestamp_sec") or args.get("timecode")
+            active_data = SESSION_RESULTS_STORE.get(session_id) or LATEST_ANALYSIS_DATA
+            video_uri = active_data.get("video_path") or f"gs://{GCS_BUCKET}/sample_ea.mp4"
+            disp_name = active_data.get("display_name", "Playtest Video")
+
+            clip_ts = raw_ts if raw_ts else "00:15"
+            clip_md = ""
+            try:
+                clip_info = create_playtest_clip(
+                    video_path=video_uri,
+                    timestamp=clip_ts,
+                    duration=10.0
+                )
+                ts_target = clip_info["timestamp_target"]
+                win_start = clip_info["window_start"]
+                win_end = clip_info["window_end"]
+                dl_url = clip_info["download_url"]
+                fname = clip_info["filename"]
+                clip_md = (
+                    f"\n\n🎬 **10-Second Playtest Bug Clip Ready!**\n"
+                    f"- **Target Timestamp:** `{ts_target}` (Window: `{win_start}` – `{win_end}`)\n"
+                    f"- **Filename:** `{fname}`\n\n"
+                    f"📥 **[Click Here to Download Clip ({fname})]({dl_url})**\n\n"
+                    f"*(Direct GCS download link with zero auth/IAM 403 barriers, valid for 4 hours)*"
+                )
+            except Exception as clip_err:
+                print("Clip generation note in reviewer:", clip_err)
+
             return JSONResponse({
                 "jsonrpc": "2.0",
                 "id": rpc_id,
@@ -1250,10 +1279,9 @@ async def handle_mcp(request: Request) -> Response:
                             "type": "text",
                             "text": (
                                 f"🛹 **EA Skate Frostbite QA Defect Reviewer Loaded**\n\n"
-                                f"Active Session: `{session_id}`\n"
-                                f"- **Interactive Defect Pins**: `00:12` Curb Snapping, `00:20` Ragdoll Inversion, `00:47` Impulse Launch.\n"
-                                f"- **Controls**: `0.5x Slow-Mo`, frame-by-frame scrubbing (`±1.0s`), keyboard shortcuts (`Space`, `←`/`→`, `1`-`3`).\n"
-                                f"- **Telemetry**: Live Frostbite rigid body & solver telemetry breakdown."
+                                f"Active Video: `{disp_name}` (Session: `{session_id}`)\n"
+                                f"- **Interactive Scrubber**: Loaded in side panel with 0.5x Slow-Mo & frame stepping."
+                                f"{clip_md}"
                             ),
                         }
                     ],
